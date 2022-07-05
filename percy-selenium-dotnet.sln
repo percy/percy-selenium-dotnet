@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30114.105
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Percy", "Percy\Percy.csproj", "{323DA6BB-CA75-418F-8792-A5D8E9B2BC6B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Percy.Test", "Percy.Test\Percy.Test.csproj", "{5E3434DF-A4BA-4054-9350-4FC0CD33B929}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{323DA6BB-CA75-418F-8792-A5D8E9B2BC6B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{323DA6BB-CA75-418F-8792-A5D8E9B2BC6B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{323DA6BB-CA75-418F-8792-A5D8E9B2BC6B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{323DA6BB-CA75-418F-8792-A5D8E9B2BC6B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5E3434DF-A4BA-4054-9350-4FC0CD33B929}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5E3434DF-A4BA-4054-9350-4FC0CD33B929}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5E3434DF-A4BA-4054-9350-4FC0CD33B929}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5E3434DF-A4BA-4054-9350-4FC0CD33B929}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
