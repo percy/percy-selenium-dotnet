@@ -23,9 +23,11 @@ jobs:
           path: node_modules
           key: ${{ runner.os }}/node-16/${{ hashFiles('**/package-lock.json') }}
           restore-keys: ${{ runner.os }}/node-16/
-      - run: dotnet restore
-      - run: dotnet build
-      - run: npm install
+      - name: Install Dependencies
+        run: dotnet restore && npm install
         env:
           PERCY_POSTINSTALL_BROWSER: true
-      - run: npm test
+      - name: Build Package
+        run: dotnet build --configuration Release --no-restore
+      - name: Run Tests
+        run: npm test -- --no-restore --verbosity normal
