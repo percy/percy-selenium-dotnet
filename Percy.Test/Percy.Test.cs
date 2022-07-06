@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Firefox;
 using WebDriverManager;
@@ -137,7 +138,7 @@ namespace Percy.Selenium.Tests
                 "- minHeight: 1024px",
                 "- discovery.allowedHostnames: localhost",
                 "- clientInfo: percy-selenium-dotnet/1.0.0",
-                $"- environmentInfo: dotnet/{Environment.Version}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
                 "---------",
                 "Snapshot found: Snapshot 2",
@@ -147,7 +148,7 @@ namespace Percy.Selenium.Tests
                 "- enableJavaScript: true",
                 "- discovery.allowedHostnames: localhost",
                 "- clientInfo: percy-selenium-dotnet/1.0.0",
-                $"- environmentInfo: dotnet/{Environment.Version}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
                 "---------",
                 "Snapshot found: Snapshot 3",
@@ -157,7 +158,7 @@ namespace Percy.Selenium.Tests
                 "- enableJavaScript: true",
                 "- discovery.allowedHostnames: localhost",
                 "- clientInfo: percy-selenium-dotnet/1.0.0",
-                $"- environmentInfo: dotnet/{Environment.Version}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true"
             };
 

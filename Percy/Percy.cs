@@ -2,12 +2,14 @@ using System;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Net.Http;
 using System.Reflection;
 using System.Diagnostics;
 using System.ComponentModel;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using OpenQA.Selenium;
 
 namespace Percy.Selenium
@@ -20,8 +22,9 @@ namespace Percy.Selenium
             Environment.GetEnvironmentVariable("PERCY_CLI_API") ?? "http://localhost:5338";
         public static readonly string CLIENT_INFO =
             typeof(Percy).Assembly.GetCustomAttribute<ClientInfoAttribute>().ClientInfo;
-        public static readonly string ENVIRONMENT_INFO =
-            $"dotnet/{Environment.Version}";
+        public static readonly string ENVIRONMENT_INFO = Regex.Replace(
+            Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
+            @"-(\d.+$)", "/$1").Trim().ToLower();
 
         private static void Log<T>(T message)
         {
