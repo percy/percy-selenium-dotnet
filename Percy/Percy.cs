@@ -24,7 +24,7 @@ namespace Percy.Selenium
             typeof(Percy).Assembly.GetCustomAttribute<ClientInfoAttribute>().ClientInfo;
         public static readonly string ENVIRONMENT_INFO = Regex.Replace(
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
-            @"-(\d.+$)", "/$1").Trim().ToLower();
+            @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
         private static void Log<T>(T message)
         {
