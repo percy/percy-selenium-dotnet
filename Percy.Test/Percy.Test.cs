@@ -1,6 +1,7 @@
 using Xunit;
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -128,7 +129,7 @@ namespace Percy.Selenium.Tests
                 if (msg != null && (msg[0] == '-' || msg.StartsWith("Snapshot"))) logs.Add(msg);
             }
 
-            Assert.Equal(new List<string> {
+            List<string> expected = new List<string> {
                 "---------",
                 "Snapshot found: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
@@ -158,7 +159,10 @@ namespace Percy.Selenium.Tests
                 "- clientInfo: percy-selenium-dotnet/1.0.0",
                 $"- environmentInfo: dotnet/{Environment.Version}",
                 "- domSnapshot: true"
-            }, logs);
+            };
+
+            foreach (int i in expected.Select((v, i) => i))
+                Assert.Equal(expected[i], logs[i]);
         }
 
         [Fact]
