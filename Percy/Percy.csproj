@@ -17,6 +17,10 @@
     <Copyright>Copyright Perceptual Inc</Copyright>
     <Authors>percy-admin</Authors>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://docs.percy.io/docs/selenium-dotnet</PackageProjectUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/percy/percy-selenium-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -28,7 +32,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="Selenium.WebDriver" Version="4.3.0" />
-    <PackageReference Include="System.Net.Http" Version="4.3.4" />
     <PackageReference Include="System.Text.Json" Version="6.0.5" />
   </ItemGroup>
 
