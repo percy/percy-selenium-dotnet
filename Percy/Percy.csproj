@@ -12,7 +12,7 @@
     <AssemblyTitle>Percy</AssemblyTitle>
     <Description>Percy for Selenium WebDriver API .NET Bindings</Description>
     <Company>Percy</Company>
-    <Version>1.0.0</Version>
+    <Version>1.0.0-beta.1</Version>
     <PackageId>Percy.Selenium</PackageId>
   </PropertyGroup>
 
