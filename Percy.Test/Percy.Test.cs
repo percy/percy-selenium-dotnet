@@ -127,7 +127,7 @@ namespace Percy.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null && (msg[0] == '-' || msg.StartsWith("Snapshot"))) logs.Add(msg);
+                if (msg != null) logs.Add(msg);
             }
 
             List<string> expected = new List<string> {
