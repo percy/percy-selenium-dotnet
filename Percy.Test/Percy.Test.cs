@@ -137,7 +137,7 @@ namespace Percy.Selenium.Tests
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
                 "- discovery.allowedHostnames: localhost",
-                "- clientInfo: percy-selenium-dotnet/1.0.0",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
                 "---------",
@@ -147,7 +147,7 @@ namespace Percy.Selenium.Tests
                 "- minHeight: 1024px",
                 "- enableJavaScript: true",
                 "- discovery.allowedHostnames: localhost",
-                "- clientInfo: percy-selenium-dotnet/1.0.0",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
                 "---------",
@@ -157,7 +157,7 @@ namespace Percy.Selenium.Tests
                 "- minHeight: 1024px",
                 "- enableJavaScript: true",
                 "- discovery.allowedHostnames: localhost",
-                "- clientInfo: percy-selenium-dotnet/1.0.0",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true"
             };
