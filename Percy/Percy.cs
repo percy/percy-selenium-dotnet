@@ -14,7 +14,7 @@ using OpenQA.Selenium;
 
 namespace Percy.Selenium
 {
-    public struct Percy
+    public class Percy
     {
         public static readonly bool DEBUG =
             Environment.GetEnvironmentVariable("PERCY_LOGLEVEL") == "debug";
