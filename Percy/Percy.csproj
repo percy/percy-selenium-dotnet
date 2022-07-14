@@ -11,7 +11,7 @@
     <PackageId>Percy.Selenium</PackageId>
     <Description>Percy for Selenium WebDriver API .NET Bindings</Description>
     <PackageTags>selenium;percy;visual;testing</PackageTags>
-    <Version>1.0.0-beta.2</Version>
+    <Version>1.0.0-beta.3</Version>
     <Company>Perceptual Inc</Company>
     <Copyright>Copyright Perceptual Inc</Copyright>
     <Authors>percy-admin</Authors>
