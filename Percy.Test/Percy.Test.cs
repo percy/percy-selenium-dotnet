@@ -17,12 +17,11 @@ using Percy.Selenium;
 
 namespace Percy.Selenium.Tests
 {
-    public abstract class TestsBase : IDisposable
+    public class TestsFixture : IDisposable
     {
         public readonly FirefoxDriver driver;
-        private readonly StringWriter _stdout;
 
-        public TestsBase()
+        public TestsFixture ()
         {
             new DriverManager().SetUpDriver(new FirefoxConfig());
             FirefoxOptions options = new FirefoxOptions();
@@ -30,18 +29,29 @@ namespace Percy.Selenium.Tests
             options.AddArgument("--headless");
 
             driver = new FirefoxDriver(options);
-            driver.Navigate().GoToUrl($"{Percy.CLI_API}/test/snapshot");
-
-            _stdout = new StringWriter();
-            Console.SetOut(_stdout);
-
-            Percy.ResetInternalCaches();
-            Request("/test/api/reset");
         }
 
         public void Dispose()
         {
             driver.Quit();
+        }
+    }
+
+    public class UnitTests : IClassFixture<TestsFixture>
+    {
+        public readonly FirefoxDriver driver;
+        private readonly StringWriter _stdout;
+
+        public UnitTests(TestsFixture fixture)
+        {
+            _stdout = new StringWriter();
+            Console.SetOut(_stdout);
+
+            driver = fixture.driver;
+            driver.Navigate().GoToUrl($"{Percy.CLI_API}/test/snapshot");
+
+            Percy.ResetInternalCaches();
+            Request("/test/api/reset");
         }
 
         public string Stdout()
@@ -67,10 +77,7 @@ namespace Percy.Selenium.Tests
 
             return JsonSerializer.Deserialize<JsonElement>(contentTask.Result);
         }
-    }
 
-    public class UnitTests : TestsBase
-    {
         [Fact]
         public void DisablesSnapshotsWhenHealthcheckFails()
         {
@@ -115,11 +122,11 @@ namespace Percy.Selenium.Tests
         {
             Percy.Snapshot(driver, "Snapshot 1");
             Percy.Snapshot(driver, "Snapshot 2", new {
-                enableJavaScript = true
-            });
+                    enableJavaScript = true
+                });
             Percy.Snapshot(driver, "Snapshot 3", new Percy.Options {
                 { "enableJavaScript", true }
-            });
+                });
 
             JsonElement data = Request("/test/logs");
             List<string> logs = new List<string>();
