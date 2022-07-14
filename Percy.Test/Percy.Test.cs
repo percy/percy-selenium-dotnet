@@ -13,9 +13,9 @@ using OpenQA.Selenium;
 using OpenQA.Selenium.Firefox;
 using WebDriverManager;
 using WebDriverManager.DriverConfigs.Impl;
-using Percy.Selenium;
+using PercyIO.Selenium;
 
-namespace Percy.Selenium.Tests
+namespace PercyIO.Selenium.Tests
 {
     public class TestsFixture : IDisposable
     {

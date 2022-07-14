@@ -11,10 +11,10 @@ npm install `@percy/cli` (requires Node 14+):
 $ npm install --save-dev @percy/cli
 ```
 
-Install the Percy.Selenium package (for example, with .NET CLI):
+Install the PercyIO.Selenium package (for example, with .NET CLI):
 
 ```ssh-session
-$ dotnet add package Percy.Selenium
+$ dotnet add package PercyIO.Selenium
 ```
 
 ## Usage
@@ -22,7 +22,7 @@ $ dotnet add package Percy.Selenium
 This is an example test using the `Percy.Snapshot` method.
 
 ``` csharp
-using Percy.Selenium;
+using PercyIO.Selenium;
 
 // ... other test code
 

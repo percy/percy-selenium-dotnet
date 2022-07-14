@@ -12,9 +12,9 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenQA.Selenium;
 
-namespace Percy.Selenium
+namespace PercyIO.Selenium
 {
-    public class Percy
+    public static class Percy
     {
         public static readonly bool DEBUG =
             Environment.GetEnvironmentVariable("PERCY_LOGLEVEL") == "debug";

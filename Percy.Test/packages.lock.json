@@ -259,7 +259,7 @@
           "xunit.extensibility.core": "[2.4.1]"
         }
       },
-      "Percy.Selenium": {
+      "PercyIO.Selenium": {
         "type": "Project",
         "dependencies": {
           "Microsoft.CSharp": "4.7.0",
@@ -1368,7 +1368,7 @@
           "xunit.extensibility.core": "[2.4.1]"
         }
       },
-      "Percy.Selenium": {
+      "PercyIO.Selenium": {
         "type": "Project",
         "dependencies": {
           "Microsoft.CSharp": "4.7.0",
