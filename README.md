@@ -3,6 +3,35 @@
 
 [Percy](https://percy.io) visual testing for .NET Selenium.
 
+## Development
+
+Install/update `@percy/cli` dev dependency (requires Node 14+):
+
+```sh-session
+$ npm install --save-dev @percy/cli
+```
+
+Install dotnet SDK:
+
+```sh-session
+$ brew tap isen-ng/dotnet-sdk-versions
+$ brew install --cask  dotnet-sdk5-0-400
+$ dotnet --list-sdks
+```
+
+Install Mono:
+
+```sh-session
+$ brew install mono
+$ mono --version 
+```
+
+Run tests:
+
+```
+npm run test
+```
+
 ## Installation
 
 npm install `@percy/cli` (requires Node 14+):
@@ -13,7 +42,7 @@ $ npm install --save-dev @percy/cli
 
 Install the PercyIO.Selenium package (for example, with .NET CLI):
 
-```ssh-session
+```sh-session
 $ dotnet add package PercyIO.Selenium
 ```
 

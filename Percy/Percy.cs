@@ -119,7 +119,7 @@ namespace PercyIO.Selenium
                     driver.ExecuteScript(GetPercyDOM());
 
                 string opts = JsonSerializer.Serialize(options);
-                string domSnapshot = (string) driver.ExecuteScript($"return PercyDOM.serialize({opts})");
+                var domSnapshot = driver.ExecuteScript($"return PercyDOM.serialize({opts})");
 
                 Options snapshotOptions = new Options {
                     { "clientInfo", CLIENT_INFO },
