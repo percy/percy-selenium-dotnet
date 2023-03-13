@@ -46,8 +46,6 @@ jobs:
           cd ${{ github.workspace }} 
           yarn remove @percy/cli && yarn link `echo $PERCY_PACKAGES`
           npx percy --version 
-        env:
-          PERCY_POSTINSTALL_BROWSER: true
       - name: Build Package
         run: dotnet build --configuration Release --no-restore
       - name: Run Tests
