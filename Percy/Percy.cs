@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenQA.Selenium;
+using OpenQA.Selenium.Remote;
 
 namespace PercyIO.Selenium
 {
@@ -146,6 +147,53 @@ namespace PercyIO.Selenium
             }
         }
 
+        public static void Screenshot(
+            WebDriver driver, string name,
+            IEnumerable<KeyValuePair<string, object>>? options = null)
+        {
+            if(!Enabled()) return;
+            if(!(driver is RemoteWebDriver)) throw new Exception("Driver should be of type RemoteWebDriver");
+
+            try
+            {
+                string sessionId = ((RemoteWebDriver)driver).SessionId.ToString();
+                HttpCommandExecutor executor = (HttpCommandExecutor)((RemoteWebDriver)driver).CommandExecutor;
+                FieldInfo remoteServerUriField = typeof(HttpCommandExecutor).GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
+                string commandExecutorUrl = remoteServerUriField.GetValue(executor).ToString();
+                ICapabilities capabilitiesX = ((RemoteWebDriver)driver).Capabilities;
+                Dictionary<string, object> capabilities = new Dictionary<string, object>();
+
+                List<string> properties = new List<string>()
+                {
+                    "browserName", "browserVersion", "platformName", "proxy"
+                };
+
+                properties.ForEach(property => capabilities.Add(property, capabilitiesX.GetCapability(property)));
+
+                Options screenshotOptions = new Options {
+                    { "sessionId", sessionId },
+                    { "commandExecutorUrl", commandExecutorUrl },
+                    { "capabilities", capabilities },
+                    { "snapshotName", name },
+                    { "clientInfo", CLIENT_INFO },
+                    { "environmentinfo", ENVIRONMENT_INFO },
+                };
+
+                if (options != null)
+                        screenshotOptions.Add( "options", options);
+
+                dynamic res = Request("/percy/automateScreenshot", screenshotOptions);
+                dynamic data = JsonSerializer.Deserialize<object>(res.content);
+                if (data.GetProperty("success").GetBoolean() != true)
+                    throw new Exception(data.GetProperty("error").GetString());
+            }
+            catch(Exception error)
+            {
+                Log($"Could not take Percy Screenshot \"{name}\"");
+                Log(error);
+            }
+        }
+
         public static void Snapshot(WebDriver driver, string name, object opts)
         {
             Options options = new Options();
@@ -154,6 +202,15 @@ namespace PercyIO.Selenium
                 options.Add(prop.Name, prop.GetValue(opts));
 
             Snapshot(driver, name, options);
+        }
+
+        public static void Screenshot(WebDriver driver, string name, object opts) {
+            Options options = new Options();
+            
+            foreach (PropertyDescriptor prop in TypeDescriptor.GetProperties(opts))
+                options.Add(prop.Name, prop.GetValue(opts));
+            
+            Screenshot(driver, name, options);
         }
 
         public static void ResetInternalCaches()
