@@ -27,6 +27,11 @@ namespace PercyIO.Selenium
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
+        private static readonly List<string>? CAPABILITIES = new List<string>()
+        {
+            "browserName", "browserVersion", "platformName", "proxy"
+        };
+
         private static void Log<T>(T message)
         {
             string label = DEBUG ? "percy:dotnet" : "percy";
@@ -106,6 +111,17 @@ namespace PercyIO.Selenium
             }
         }
 
+        private static bool? _validDriver = null;
+        public static bool isDriverValid(WebDriver driver)
+        {
+            if (_validDriver != null) return (bool) _validDriver;
+
+            return (bool) (_validDriver = (
+                driver is RemoteWebDriver &&
+                driver.GetType().ToString().Contains("Selenium")
+            ));
+        }
+
         public class Options : Dictionary<string, object> {}
 
         public static void Snapshot(
@@ -152,7 +168,7 @@ namespace PercyIO.Selenium
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             if(!Enabled()) return;
-            if(!(driver is RemoteWebDriver)) throw new Exception("Driver should be of type RemoteWebDriver");
+            if(!isDriverValid(driver)) throw new Exception("Driver should be of type RemoteWebDriver");
 
             try
             {
@@ -163,12 +179,7 @@ namespace PercyIO.Selenium
                 ICapabilities capabilitiesX = ((RemoteWebDriver)driver).Capabilities;
                 Dictionary<string, object> capabilities = new Dictionary<string, object>();
 
-                List<string> properties = new List<string>()
-                {
-                    "browserName", "browserVersion", "platformName", "proxy"
-                };
-
-                properties.ForEach(property => capabilities.Add(property, capabilitiesX.GetCapability(property)));
+                CAPABILITIES.ForEach(property => capabilities.Add(property, capabilitiesX.GetCapability(property)));
 
                 Options screenshotOptions = new Options {
                     { "sessionId", sessionId },
