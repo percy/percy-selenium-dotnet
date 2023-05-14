@@ -12,6 +12,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Remote;
+using Newtonsoft.Json.Linq;
 
 namespace PercyIO.Selenium
 {
@@ -27,11 +28,6 @@ namespace PercyIO.Selenium
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
-        private static readonly List<string>? CAPABILITIES = new List<string>()
-        {
-            "browserName", "browserVersion", "platformName", "proxy"
-        };
-
         private static void Log<T>(T message)
         {
             string label = DEBUG ? "percy:dotnet" : "percy";
@@ -39,10 +35,20 @@ namespace PercyIO.Selenium
         }
 
         private static HttpClient _http = new HttpClient();
-        private static dynamic Request(string endpoint, object? payload = null)
+
+        private static string PayloadParser(object? payload = null, bool alreadyJson = false)
+        {
+            if (alreadyJson) 
+            {
+                return payload.ToString();
+            }
+            return JsonSerializer.Serialize(payload).ToString();
+        }
+
+        private static dynamic Request(string endpoint, object? payload = null, bool isJson = false)
         {
             StringContent? body = payload == null ? null : new StringContent(
-                JsonSerializer.Serialize(payload).ToString(), Encoding.UTF8, "application/json");
+                PayloadParser(payload, isJson), Encoding.UTF8, "application/json");
             Task<HttpResponseMessage> apiTask = body != null
                 ? _http.PostAsync($"{CLI_API}{endpoint}", body)
                 : _http.GetAsync($"{CLI_API}{endpoint}");
@@ -172,28 +178,29 @@ namespace PercyIO.Selenium
 
             try
             {
-                string sessionId = ((RemoteWebDriver)driver).SessionId.ToString();
-                HttpCommandExecutor executor = (HttpCommandExecutor)((RemoteWebDriver)driver).CommandExecutor;
-                FieldInfo remoteServerUriField = typeof(HttpCommandExecutor).GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
-                string commandExecutorUrl = remoteServerUriField.GetValue(executor).ToString();
-                ICapabilities capabilitiesX = ((RemoteWebDriver)driver).Capabilities;
-                Dictionary<string, object> capabilities = new Dictionary<string, object>();
+                PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
 
-                CAPABILITIES.ForEach(property => capabilities.Add(property, capabilitiesX.GetCapability(property)));
+                Dictionary<string, object> receivedPayload = percyDriver.getPayload();
+                Console.WriteLine(receivedPayload);
+                Options screenshotOptions = new Options {};
 
-                Options screenshotOptions = new Options {
-                    { "sessionId", sessionId },
-                    { "commandExecutorUrl", commandExecutorUrl },
-                    { "capabilities", capabilities },
-                    { "snapshotName", name },
-                    { "clientInfo", CLIENT_INFO },
-                    { "environmentinfo", ENVIRONMENT_INFO },
-                };
+                screenshotOptions.Add("snapshotName", name);
+                foreach (KeyValuePair<string, object> o in receivedPayload)
+                {
+                    if(o.Key == "capabilities")
+                    {
+                        var dictionary = JObject.Parse(o.Value.ToString());
+                        screenshotOptions.Add(o.Key, dictionary);
+                    } else
+                    {
+                        screenshotOptions.Add(o.Key, o.Value);
+                    }
+                }
 
                 if (options != null)
-                        screenshotOptions.Add( "options", options);
+                    screenshotOptions.Add("options", options);
 
-                dynamic res = Request("/percy/automateScreenshot", screenshotOptions);
+                dynamic res = Request("/percy/automateScreenshot", JObject.FromObject(screenshotOptions), true);
                 dynamic data = JsonSerializer.Deserialize<object>(res.content);
                 if (data.GetProperty("success").GetBoolean() != true)
                     throw new Exception(data.GetProperty("error").GetString());

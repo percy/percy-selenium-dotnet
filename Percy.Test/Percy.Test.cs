@@ -1,3 +1,4 @@
+using Moq;
 using Xunit;
 using System;
 using System.IO;
@@ -14,6 +15,9 @@ using OpenQA.Selenium.Firefox;
 using WebDriverManager;
 using WebDriverManager.DriverConfigs.Impl;
 using PercyIO.Selenium;
+using OpenQA.Selenium.Remote;
+using Newtonsoft.Json.Linq;
+
 
 namespace PercyIO.Selenium.Tests
 {
@@ -45,7 +49,7 @@ namespace PercyIO.Selenium.Tests
         public UnitTests(TestsFixture fixture)
         {
             _stdout = new StringWriter();
-            Console.SetOut(_stdout);
+            // Console.SetOut(_stdout);
 
             driver = fixture.driver;
             driver.Navigate().GoToUrl($"{Percy.CLI_API}/test/snapshot");
@@ -143,6 +147,7 @@ namespace PercyIO.Selenium.Tests
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
+                "- disableShadowDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
@@ -154,6 +159,7 @@ namespace PercyIO.Selenium.Tests
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
                 "- enableJavaScript: true",
+                "- disableShadowDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
@@ -165,6 +171,7 @@ namespace PercyIO.Selenium.Tests
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
                 "- enableJavaScript: true",
+                "- disableShadowDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
