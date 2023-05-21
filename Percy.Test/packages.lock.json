@@ -36,6 +36,15 @@
           "Castle.Core": "5.1.1"
         }
       },
+      "NSubstitute": {
+        "type": "Direct",
+        "requested": "[5.0.0, )",
+        "resolved": "5.0.0",
+        "contentHash": "CWGy4oXvcJcZzL7m5Rr/eMSejFXMDq1RRMlsbL6eltS3AuN/d8GH3ZzUcuStQcCSlcx+hpsgTxdnb3lhozWG6w==",
+        "dependencies": {
+          "Castle.Core": "5.0.0"
+        }
+      },
       "RichardSzalay.MockHttp": {
         "type": "Direct",
         "requested": "[6.0.0, )",

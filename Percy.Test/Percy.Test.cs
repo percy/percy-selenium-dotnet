@@ -49,7 +49,7 @@ namespace PercyIO.Selenium.Tests
         public UnitTests(TestsFixture fixture)
         {
             _stdout = new StringWriter();
-            // Console.SetOut(_stdout);
+            Console.SetOut(_stdout);
 
             driver = fixture.driver;
             driver.Navigate().GoToUrl($"{Percy.CLI_API}/test/snapshot");
