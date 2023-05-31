@@ -17,6 +17,11 @@ namespace PercyIO.Selenium
     this._remoteDriver = driver;
   }
 
+  public RemoteWebDriver getRemoteWebDriver()
+  {
+    return this._remoteDriver;
+  }
+
   public ICapabilities GetCapabilities()
   {
     // Implement Cache

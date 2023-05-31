@@ -175,13 +175,11 @@ namespace PercyIO.Selenium
         {
             if(!Enabled()) return;
             if(!isDriverValid(driver)) throw new Exception("Driver should be of type RemoteWebDriver");
-
             try
             {
                 PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
 
                 Dictionary<string, object> receivedPayload = percyDriver.getPayload();
-                Console.WriteLine(receivedPayload);
                 Options screenshotOptions = new Options {};
 
                 screenshotOptions.Add("snapshotName", name);

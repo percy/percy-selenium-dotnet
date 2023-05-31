@@ -7,12 +7,8 @@ namespace PercyIO.Selenium
 {
   public class PercyDriver
   {
-    private Boolean isPercyEnabled;
-
     private IPercySeleniumDriver percySeleniumDriver;
     private String sessionId;
-    public static Cache<string, object> cache = new Cache<string, object>();
-
     internal void setValues(IPercySeleniumDriver percySeleniumDriver)
     {
       this.sessionId = percySeleniumDriver.sessionId();
@@ -25,17 +21,31 @@ namespace PercyIO.Selenium
         { "sessionId", this.sessionId },
         { "commandExecutorUrl", this.percySeleniumDriver.GetHost() },
         { "capabilities", this.percySeleniumDriver.GetCapabilities() },
-        // { "sessionCapabilites", this.percySeleniumDriver.GetSessionDetails() },
       };
       return payload;
     }
 
     public PercyDriver(RemoteWebDriver driver)
     {
-      // if(!Percy.Enabled()) return;
-      // if(!Percy.isDriverValid(driver)) throw new Exception("Driver should be of type RemoteWebDriver");
       this.percySeleniumDriver = new PercySeleniumDriver(driver);
       setValues(this.percySeleniumDriver);
+    }
+
+    internal PercyDriver(PercySeleniumDriver driver)
+    {
+      this.percySeleniumDriver = driver;
+      setValues(this.percySeleniumDriver);
+    }
+
+    internal PercyDriver(IPercySeleniumDriver driver)
+    {;
+      this.percySeleniumDriver = driver;
+      setValues(this.percySeleniumDriver);
+    }
+
+    public void Screenshot(String name, IEnumerable<KeyValuePair<string, object>>? options = null)
+    {
+      Percy.Screenshot(this.percySeleniumDriver.getRemoteWebDriver(), name, options);
     }
   }
 }

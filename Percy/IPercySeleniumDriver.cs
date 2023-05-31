@@ -1,13 +1,15 @@
 using System;
 using OpenQA.Selenium;
+using OpenQA.Selenium.Remote;
 
 namespace PercyIO.Selenium
 {
-  public interface IPercySeleniumDriver
+  internal interface IPercySeleniumDriver
   {
     ICapabilities GetCapabilities();
     System.Collections.Generic.IDictionary<string, object> GetSessionDetails();
     String sessionId();
     String GetHost();
+    RemoteWebDriver getRemoteWebDriver();
   }
 }
