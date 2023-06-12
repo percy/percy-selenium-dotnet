@@ -19,7 +19,7 @@ namespace PercyIO.Selenium.Tests
       capabilities.Setup(x => x.GetCapability("platformName")).Returns("win");
       capabilities.Setup(x => x.GetCapability("osVersion")).Returns("111.0");
       capabilities.Setup(x => x.GetCapability("browserName")).Returns("firefox");
-      string url = "http://hub-cloud.browserstack.com/wd/hub";
+      string url = "http://hub-cloud.browserstack.com/wd/hub/";
       _remoteDriver.Setup(x => x.sessionId()).Returns("123");
       _remoteDriver.Setup(x => x.GetHost()).Returns(url);
       _remoteDriver.Setup(x => x.GetCapabilities()).Returns(capabilities.Object);
@@ -27,7 +27,7 @@ namespace PercyIO.Selenium.Tests
       Dictionary<string, object> expectedResponse = new Dictionary<string, object>()
       {
         { "sessionId", "123" },
-        { "commandExecutorUrl", url },
+        { "commandExecutorUrl", "http://hub-cloud.browserstack.com/wd/hub" },
         { "capabilities", capabilities.Object }
       };
       var percyDriverMock = new Mock<PercyDriver>(_remoteDriver.Object);

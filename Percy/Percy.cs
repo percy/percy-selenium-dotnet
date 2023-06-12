@@ -28,6 +28,8 @@ namespace PercyIO.Selenium
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
+        public static readonly string ignoreElementKey = "ignore_region_selenium_elements";
+
         private static void Log<T>(T message)
         {
             string label = DEBUG ? "percy:dotnet" : "percy";
@@ -130,6 +132,17 @@ namespace PercyIO.Selenium
 
         public class Options : Dictionary<string, object> {}
 
+        private static List<String> GetElementIdFromElements(List<IWebElement> elements) {
+            List<string> ignoredElementsArray = new List<string>();
+            for (int index = 0; index < elements.Count; index++)
+            {
+                PropertyInfo idProperty = typeof(WebElement).GetProperty("Id", BindingFlags.Instance | BindingFlags.NonPublic);
+                string elementId = (string)idProperty.GetValue(elements[index]);
+                ignoredElementsArray.Add(elementId);
+            }
+            return ignoredElementsArray;
+        } 
+
         public static void Snapshot(
             WebDriver driver, string name,
             IEnumerable<KeyValuePair<string, object>>? options = null)
@@ -195,8 +208,20 @@ namespace PercyIO.Selenium
                     }
                 }
 
-                if (options != null)
-                    screenshotOptions.Add("options", options);
+                if (options != null) {
+                    Dictionary<string, object> userOptions = options.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+                    if (userOptions.ContainsKey(ignoreElementKey)) {
+                        var ignoreElements = userOptions[ignoreElementKey] as List<IWebElement>;
+
+                        if (ignoreElements != null)
+                        {
+                            List<string> elementIds = GetElementIdFromElements(ignoreElements);
+                            userOptions[ignoreElementKey] = elementIds;
+                        }
+                    }
+                    screenshotOptions.Add("options", userOptions);
+                }
 
                 dynamic res = Request("/percy/automateScreenshot", JObject.FromObject(screenshotOptions), true);
                 dynamic data = JsonSerializer.Deserialize<object>(res.content);

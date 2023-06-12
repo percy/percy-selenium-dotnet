@@ -19,7 +19,7 @@ namespace PercyIO.Selenium
       Dictionary<string, object>  payload = new Dictionary<string, object>()  
       {
         { "sessionId", this.sessionId },
-        { "commandExecutorUrl", this.percySeleniumDriver.GetHost() },
+        { "commandExecutorUrl", this.percySeleniumDriver.GetHost().TrimEnd('/') },
         { "capabilities", this.percySeleniumDriver.GetCapabilities() },
       };
       return payload;
