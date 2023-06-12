@@ -25,13 +25,13 @@ namespace PercyIO.Selenium
   public ICapabilities GetCapabilities()
   {
     // Implement Cache
-    return this._remoteDriver?.Capabilities;
+    return this._remoteDriver.Capabilities;
   }
 
   public IDictionary<string, object> GetSessionDetails()
   {
     // Implement Cache
-    return (IDictionary<string, object>)this._remoteDriver?.Capabilities;
+    return (IDictionary<string, object>)this._remoteDriver.Capabilities;
   }
 
   public String sessionId()
@@ -41,9 +41,9 @@ namespace PercyIO.Selenium
 
   public String GetHost()
   {
-    HttpCommandExecutor executor = (HttpCommandExecutor)(this._remoteDriver)?.CommandExecutor;
-    FieldInfo remoteServerUriField = typeof(HttpCommandExecutor)?.GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
-    String commandExecutorUrl = remoteServerUriField?.GetValue(executor)?.ToString();
+    HttpCommandExecutor executor = (HttpCommandExecutor)(this._remoteDriver).CommandExecutor;
+    FieldInfo remoteServerUriField = typeof(HttpCommandExecutor).GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
+    String commandExecutorUrl = remoteServerUriField.GetValue(executor).ToString();
     return commandExecutorUrl;
   }
  }

@@ -42,7 +42,7 @@ namespace PercyIO.Selenium
         {
             if (alreadyJson) 
             {
-                return payload.ToString();
+                return payload is null ? "" : payload.ToString();
             }
             return JsonSerializer.Serialize(payload).ToString();
         }

@@ -8,7 +8,7 @@ namespace PercyIO.Selenium
   public class PercyDriver
   {
     private IPercySeleniumDriver percySeleniumDriver;
-    private String sessionId;
+    private String sessionId = "";
     internal void setValues(IPercySeleniumDriver percySeleniumDriver)
     {
       this.sessionId = percySeleniumDriver.sessionId();
