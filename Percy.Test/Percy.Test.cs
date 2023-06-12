@@ -147,7 +147,6 @@ namespace PercyIO.Selenium.Tests
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
-                "- disableShadowDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
