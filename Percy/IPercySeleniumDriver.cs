@@ -9,6 +9,7 @@ namespace PercyIO.Selenium
     ICapabilities GetCapabilities();
     System.Collections.Generic.IDictionary<string, object> GetSessionDetails();
     String sessionId();
+    String GetElementIdFromElement(IWebElement element);
     String GetHost();
     RemoteWebDriver getRemoteWebDriver();
   }

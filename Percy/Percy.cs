@@ -47,6 +47,11 @@ namespace PercyIO.Selenium
             return JsonSerializer.Serialize(payload).ToString();
         }
 
+        internal static void setHttpClient(HttpClient client)
+        {
+            _http = client;
+        }
+
         private static dynamic Request(string endpoint, object? payload = null, bool isJson = false)
         {
             StringContent? body = payload == null ? null : new StringContent(
@@ -119,29 +124,7 @@ namespace PercyIO.Selenium
             }
         }
 
-        private static bool? _validDriver = null;
-        public static bool isDriverValid(WebDriver driver)
-        {
-            if (_validDriver != null) return (bool) _validDriver;
-
-            return (bool) (_validDriver = (
-                driver is RemoteWebDriver &&
-                driver.GetType().ToString().Contains("Selenium")
-            ));
-        }
-
         public class Options : Dictionary<string, object> {}
-
-        private static List<String> GetElementIdFromElements(List<IWebElement> elements) {
-            List<string> ignoredElementsArray = new List<string>();
-            for (int index = 0; index < elements.Count; index++)
-            {
-                PropertyInfo idProperty = typeof(WebElement).GetProperty("Id", BindingFlags.Instance | BindingFlags.NonPublic);
-                string elementId = (string)idProperty.GetValue(elements[index]);
-                ignoredElementsArray.Add(elementId);
-            }
-            return ignoredElementsArray;
-        } 
 
         public static void Snapshot(
             WebDriver driver, string name,
@@ -182,16 +165,19 @@ namespace PercyIO.Selenium
             }
         }
 
+        public static void Screenshot(WebDriver driver, string name, IEnumerable<KeyValuePair<string, object>>? options = null)
+        {
+            PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
+            percyDriver.Screenshot(name, options);
+        }
+
         public static void Screenshot(
-            WebDriver driver, string name,
+            PercyDriver percyDriver, string name,
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             if(!Enabled()) return;
-            if(!isDriverValid(driver)) throw new Exception("Driver should be of type RemoteWebDriver");
             try
             {
-                PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
-
                 Dictionary<string, object> receivedPayload = percyDriver.getPayload();
                 Options screenshotOptions = new Options {};
 
@@ -216,7 +202,7 @@ namespace PercyIO.Selenium
 
                         if (ignoreElements != null)
                         {
-                            List<string> elementIds = GetElementIdFromElements(ignoreElements);
+                            List<string> elementIds = percyDriver.GetElementIdFromElements(ignoreElements);
                             userOptions[ignoreElementKey] = elementIds;
                         }
                     }

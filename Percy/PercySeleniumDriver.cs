@@ -13,9 +13,25 @@ namespace PercyIO.Selenium
 
   internal PercySeleniumDriver(RemoteWebDriver driver)
   {
+    if(!isDriverValid(driver)) throw new Exception("Driver should be of type RemoteWebDriver");
     this.driver = driver;
     this._remoteDriver = driver;
   }
+
+  private bool isDriverValid(WebDriver driver)
+  {
+      return (bool) (
+          driver is RemoteWebDriver &&
+          driver.GetType().ToString().Contains("Selenium")
+      );
+  }
+
+  public String GetElementIdFromElement(IWebElement element)
+  {
+    PropertyInfo idProperty = typeof(WebElement).GetProperty("Id", BindingFlags.Instance | BindingFlags.NonPublic);
+    string elementId = (string)idProperty.GetValue(element);
+    return elementId;
+  } 
 
   public RemoteWebDriver getRemoteWebDriver()
   {

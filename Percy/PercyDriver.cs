@@ -25,6 +25,16 @@ namespace PercyIO.Selenium
       return payload;
     }
 
+    internal List<String> GetElementIdFromElements(List<IWebElement> elements) 
+    {
+      List<string> ignoredElementsArray = new List<string>();
+      for (int index = 0; index < elements.Count; index++)
+      {
+          ignoredElementsArray.Add(percySeleniumDriver.GetElementIdFromElement(elements[index]));
+      }
+      return ignoredElementsArray;
+    } 
+
     public PercyDriver(RemoteWebDriver driver)
     {
       this.percySeleniumDriver = new PercySeleniumDriver(driver);
@@ -45,7 +55,7 @@ namespace PercyIO.Selenium
 
     public void Screenshot(String name, IEnumerable<KeyValuePair<string, object>>? options = null)
     {
-      Percy.Screenshot(this.percySeleniumDriver.getRemoteWebDriver(), name, options);
+      Percy.Screenshot(this, name, options);
     }
   }
 }
