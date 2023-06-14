@@ -11,20 +11,27 @@ namespace PercyIO.Selenium.Tests
 {
   public class PercyDriverTest
   {
-    [Fact]
-    public void getDriverDetails()
-    {
-      // This function tests for payload and driverDetails
-      Mock<IPercySeleniumDriver> _remoteDriver = new Mock<IPercySeleniumDriver>();
-      Mock<ICapabilities> capabilities = new Mock<ICapabilities>();
+    private readonly Mock<IPercySeleniumDriver> remoteDriver;
+    private Mock<PercyDriver> percyDriverMock;
+    private readonly Mock<ICapabilities> capabilities;
+
+    public PercyDriverTest() {
+      remoteDriver = new Mock<IPercySeleniumDriver>();
+      capabilities = new Mock<ICapabilities>();
       capabilities.Setup(x => x.GetCapability("platformName")).Returns("win");
       capabilities.Setup(x => x.GetCapability("osVersion")).Returns("111.0");
       capabilities.Setup(x => x.GetCapability("browserName")).Returns("firefox");
       capabilities.Setup(x => x.ToString()).Returns("{\"caps\": \"Dummy_capability\"}");
       string url = "http://hub-cloud.browserstack.com/wd/hub/";
-      _remoteDriver.Setup(x => x.sessionId()).Returns("123");
-      _remoteDriver.Setup(x => x.GetHost()).Returns(url);
-      _remoteDriver.Setup(x => x.GetCapabilities()).Returns(capabilities.Object);
+      remoteDriver.Setup(x => x.sessionId()).Returns("123");
+      remoteDriver.Setup(x => x.GetHost()).Returns(url);
+      remoteDriver.Setup(x => x.GetCapabilities()).Returns(capabilities.Object);
+      percyDriverMock = new Mock<PercyDriver>(remoteDriver.Object);
+    }
+
+    [Fact]
+    public void postScreenshotWithOptions()
+    {
       // Setting Expectation
       Dictionary<string, object> expectedResponse = new Dictionary<string, object>()
       {
@@ -32,7 +39,6 @@ namespace PercyIO.Selenium.Tests
         { "commandExecutorUrl", "http://hub-cloud.browserstack.com/wd/hub" },
         { "capabilities", capabilities.Object }
       };
-      var percyDriverMock = new Mock<PercyDriver>(_remoteDriver.Object);
       // Testing Payload Function
       Assert.Equal(expectedResponse, percyDriverMock.Object.getPayload());
 
@@ -55,14 +61,14 @@ namespace PercyIO.Selenium.Tests
 
       Mock<IWebElement> element = new Mock<IWebElement>();
       var elementList = new List<IWebElement> { element.Object };
-      _remoteDriver.Setup(x => x.GetElementIdFromElement(element.Object)).Returns("dummy_element");
+      remoteDriver.Setup(x => x.GetElementIdFromElement(element.Object)).Returns("dummy_element");
       Dictionary<string, object> options = new Dictionary<string, object>();
       options["ignore_region_selenium_elements"] = elementList;
       mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
         .WithPartialContent("dummy_element")
         .Respond("application/json", JsonConvert.SerializeObject(obj));
       percyDriverMock.Object.Screenshot("Screenshot 2", options);
-      _remoteDriver.Verify(d => d.GetElementIdFromElement(element.Object));
+      remoteDriver.Verify(d => d.GetElementIdFromElement(element.Object));
 
       mockHttp.VerifyNoOutstandingExpectation();
     }
