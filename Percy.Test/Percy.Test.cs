@@ -1,4 +1,3 @@
-using Moq;
 using Xunit;
 using System;
 using System.IO;
@@ -15,9 +14,6 @@ using OpenQA.Selenium.Firefox;
 using WebDriverManager;
 using WebDriverManager.DriverConfigs.Impl;
 using PercyIO.Selenium;
-using OpenQA.Selenium.Remote;
-using Newtonsoft.Json.Linq;
-
 
 namespace PercyIO.Selenium.Tests
 {
@@ -33,7 +29,6 @@ namespace PercyIO.Selenium.Tests
             options.AddArgument("--headless");
 
             driver = new FirefoxDriver(options);
-            Percy.setHttpClient(new HttpClient());
         }
 
         public void Dispose()

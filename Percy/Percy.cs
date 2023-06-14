@@ -194,13 +194,13 @@ namespace PercyIO.Selenium
                     }
                 }
 
-                if (options != null) {
+                if(options != null) {
                     Dictionary<string, object> userOptions = options.ToDictionary(kv => kv.Key, kv => kv.Value);
 
-                    if (userOptions.ContainsKey(ignoreElementKey)) {
+                    if(userOptions.ContainsKey(ignoreElementKey)) {
                         var ignoreElements = userOptions[ignoreElementKey] as List<IWebElement>;
 
-                        if (ignoreElements != null)
+                        if(ignoreElements != null)
                         {
                             List<string> elementIds = percyDriver.GetElementIdFromElements(ignoreElements);
                             userOptions[ignoreElementKey] = elementIds;
