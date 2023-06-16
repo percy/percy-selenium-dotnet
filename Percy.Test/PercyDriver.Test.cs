@@ -30,7 +30,7 @@ namespace PercyIO.Selenium.Tests
     }
 
     [Fact]
-    public void postScreenshotWithOptions()
+    public void postScreenshot()
     {
       // Setting Expectation
       Dictionary<string, object> expectedResponse = new Dictionary<string, object>()
@@ -43,21 +43,30 @@ namespace PercyIO.Selenium.Tests
       Assert.Equal(expectedResponse, percyDriverMock.Object.getPayload());
 
       var mockHttp = new MockHttpMessageHandler();
-      var header = new Dictionary<string, string>();
-      header["x-percy-core-version"] = "1.1";
       var obj = new
       {
         success = true,
         version = "1.0",
       };
-      // Setup a respond for the user api
-      mockHttp.Expect(HttpMethod.Get, "http://localhost:5338/percy/healthcheck")
-        .Respond(header, "application/json", JsonConvert.SerializeObject(obj));
+      mockHttp.Fallback.Respond(new HttpClient());
       mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
         .WithPartialContent("Screenshot 1")
         .Respond("application/json", JsonConvert.SerializeObject(obj));
       Percy.setHttpClient(new HttpClient(mockHttp));
       percyDriverMock.Object.Screenshot("Screenshot 1");
+      mockHttp.VerifyNoOutstandingExpectation();
+    }
+
+    [Fact]
+    public void postScreenshotWithOptions()
+    {
+      var mockHttp = new MockHttpMessageHandler();
+      var obj = new
+      {
+        success = true,
+        version = "1.0",
+      };
+      mockHttp.Fallback.Respond(new HttpClient());
 
       Mock<IWebElement> element = new Mock<IWebElement>();
       var elementList = new List<IWebElement> { element.Object };
@@ -67,6 +76,7 @@ namespace PercyIO.Selenium.Tests
       mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
         .WithPartialContent("dummy_element")
         .Respond("application/json", JsonConvert.SerializeObject(obj));
+      Percy.setHttpClient(new HttpClient(mockHttp));
       percyDriverMock.Object.Screenshot("Screenshot 2", options);
       remoteDriver.Verify(d => d.GetElementIdFromElement(element.Object));
 

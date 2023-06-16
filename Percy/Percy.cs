@@ -199,12 +199,13 @@ namespace PercyIO.Selenium
                     Dictionary<string, object> userOptions = options.ToDictionary(kv => kv.Key, kv => kv.Value);
 
                     if(userOptions.ContainsKey(ignoreElementKey)) {
-                        var ignoreElements = userOptions[ignoreElementKey] as List<IWebElement>;
+                        List<IWebElement>? ignoreElements = userOptions[ignoreElementKey] as List<IWebElement>;
 
                         if(ignoreElements != null)
                         {
                             List<string> elementIds = percyDriver.GetElementIdFromElements(ignoreElements);
-                            userOptions[ignoreElementKey] = elementIds;
+                            userOptions.Remove(ignoreElementKey);
+                            userOptions["ignore_region_elements"] = elementIds;
                         }
                     }
                     screenshotOptions.Add("options", userOptions);
