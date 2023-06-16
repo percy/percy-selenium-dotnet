@@ -29,6 +29,7 @@ namespace PercyIO.Selenium.Tests
             options.AddArgument("--headless");
 
             driver = new FirefoxDriver(options);
+            Percy.setHttpClient(new HttpClient());
         }
 
         public void Dispose()

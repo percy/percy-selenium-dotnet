@@ -52,6 +52,7 @@ namespace PercyIO.Selenium
             _http = client;
         }
 
+        // Added isJson since current JSON parsing doesn’t support nested objects and thats why we using different lib
         private static dynamic Request(string endpoint, object? payload = null, bool isJson = false)
         {
             StringContent? body = payload == null ? null : new StringContent(
