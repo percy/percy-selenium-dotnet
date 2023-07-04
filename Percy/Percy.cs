@@ -11,6 +11,8 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenQA.Selenium;
+using OpenQA.Selenium.Remote;
+using Newtonsoft.Json.Linq;
 
 namespace PercyIO.Selenium
 {
@@ -26,6 +28,8 @@ namespace PercyIO.Selenium
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
+        public static readonly string ignoreElementKey = "ignore_region_selenium_elements";
+
         private static void Log<T>(T message)
         {
             string label = DEBUG ? "percy:dotnet" : "percy";
@@ -33,10 +37,26 @@ namespace PercyIO.Selenium
         }
 
         private static HttpClient _http = new HttpClient();
-        private static dynamic Request(string endpoint, object? payload = null)
+
+        private static string PayloadParser(object? payload = null, bool alreadyJson = false)
+        {
+            if (alreadyJson) 
+            {
+                return payload is null ? "" : payload.ToString();
+            }
+            return JsonSerializer.Serialize(payload).ToString();
+        }
+
+        internal static void setHttpClient(HttpClient client)
+        {
+            _http = client;
+        }
+
+        // Added isJson since current JSON parsing doesn’t support nested objects and thats why we using different lib
+        private static dynamic Request(string endpoint, object? payload = null, bool isJson = false)
         {
             StringContent? body = payload == null ? null : new StringContent(
-                JsonSerializer.Serialize(payload).ToString(), Encoding.UTF8, "application/json");
+                PayloadParser(payload, isJson), Encoding.UTF8, "application/json");
             Task<HttpResponseMessage> apiTask = body != null
                 ? _http.PostAsync($"{CLI_API}{endpoint}", body)
                 : _http.GetAsync($"{CLI_API}{endpoint}");
@@ -146,6 +166,63 @@ namespace PercyIO.Selenium
             }
         }
 
+        public static void Screenshot(WebDriver driver, string name, IEnumerable<KeyValuePair<string, object>>? options = null)
+        {
+            PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
+            percyDriver.Screenshot(name, options);
+        }
+
+        public static void Screenshot(
+            PercyDriver percyDriver, string name,
+            IEnumerable<KeyValuePair<string, object>>? options = null)
+        {
+            if(!Enabled()) return;
+            try
+            {
+                Dictionary<string, object> receivedPayload = percyDriver.getPayload();
+                Options screenshotOptions = new Options {};
+
+                screenshotOptions.Add("snapshotName", name);
+                foreach (KeyValuePair<string, object> o in receivedPayload)
+                {
+                    if(o.Key == "capabilities")
+                    {
+                        var dictionary = JObject.Parse(o.Value.ToString());
+                        screenshotOptions.Add(o.Key, dictionary);
+                    } else
+                    {
+                        screenshotOptions.Add(o.Key, o.Value);
+                    }
+                }
+
+                if(options != null) {
+                    Dictionary<string, object> userOptions = options.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+                    if(userOptions.ContainsKey(ignoreElementKey)) {
+                        List<IWebElement>? ignoreElements = userOptions[ignoreElementKey] as List<IWebElement>;
+
+                        if(ignoreElements != null)
+                        {
+                            List<string> elementIds = percyDriver.GetElementIdFromElements(ignoreElements);
+                            userOptions.Remove(ignoreElementKey);
+                            userOptions["ignore_region_elements"] = elementIds;
+                        }
+                    }
+                    screenshotOptions.Add("options", userOptions);
+                }
+
+                dynamic res = Request("/percy/automateScreenshot", JObject.FromObject(screenshotOptions), true);
+                dynamic data = JsonSerializer.Deserialize<object>(res.content);
+                if (data.GetProperty("success").GetBoolean() != true)
+                    throw new Exception(data.GetProperty("error").GetString());
+            }
+            catch(Exception error)
+            {
+                Log($"Could not take Percy Screenshot \"{name}\"");
+                Log(error);
+            }
+        }
+
         public static void Snapshot(WebDriver driver, string name, object opts)
         {
             Options options = new Options();
@@ -154,6 +231,15 @@ namespace PercyIO.Selenium
                 options.Add(prop.Name, prop.GetValue(opts));
 
             Snapshot(driver, name, options);
+        }
+
+        public static void Screenshot(WebDriver driver, string name, object opts) {
+            Options options = new Options();
+            
+            foreach (PropertyDescriptor prop in TypeDescriptor.GetProperties(opts))
+                options.Add(prop.Name, prop.GetValue(opts));
+            
+            Screenshot(driver, name, options);
         }
 
         public static void ResetInternalCaches()
