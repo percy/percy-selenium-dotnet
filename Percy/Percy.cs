@@ -29,6 +29,7 @@ namespace PercyIO.Selenium
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
         public static readonly string ignoreElementKey = "ignore_region_selenium_elements";
+        public static readonly string considerElementKey = "consider_region_selenium_elements";
 
         private static void Log<T>(T message)
         {
@@ -206,6 +207,17 @@ namespace PercyIO.Selenium
                             List<string> elementIds = percyDriver.GetElementIdFromElements(ignoreElements);
                             userOptions.Remove(ignoreElementKey);
                             userOptions["ignore_region_elements"] = elementIds;
+                        }
+                    }
+
+                    if(userOptions.ContainsKey(considerElementKey)) {
+                        List<IWebElement>? considerElements = userOptions[considerElementKey] as List<IWebElement>;
+
+                        if(considerElements != null)
+                        {
+                            List<string> elementIds = percyDriver.GetElementIdFromElements(considerElements);
+                            userOptions.Remove(considerElementKey);
+                            userOptions["consider_region_elements"] = elementIds;
                         }
                     }
                     screenshotOptions.Add("options", userOptions);
