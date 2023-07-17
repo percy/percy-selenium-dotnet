@@ -69,12 +69,17 @@ namespace PercyIO.Selenium.Tests
       mockHttp.Fallback.Respond(new HttpClient());
 
       Mock<IWebElement> element = new Mock<IWebElement>();
-      var elementList = new List<IWebElement> { element.Object };
+      Mock<IWebElement> considerElement = new Mock<IWebElement>();
+      var ignoreElementList = new List<IWebElement> { element.Object };
+      var considerElementList = new List<IWebElement> { considerElement.Object };
       remoteDriver.Setup(x => x.GetElementIdFromElement(element.Object)).Returns("dummy_element");
+      remoteDriver.Setup(x => x.GetElementIdFromElement(considerElement.Object)).Returns("consider_dummy_element");
       Dictionary<string, object> options = new Dictionary<string, object>();
       options["ignore_region_selenium_elements"] = elementList;
+      options["consider_region_selenium_elements"] = considerElementList;
       mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
         .WithPartialContent("dummy_element")
+        .WithPartialContent("consider_dummy_element")
         .Respond("application/json", JsonConvert.SerializeObject(obj));
       Percy.setHttpClient(new HttpClient(mockHttp));
       percyDriverMock.Object.Screenshot("Screenshot 2", options);
