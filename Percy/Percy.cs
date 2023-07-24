@@ -207,8 +207,8 @@ namespace PercyIO.Selenium
                     }
 
                     if (userOptions.ContainsKey(considerElementAltKey)) {
-                        userOptions[considerElementAltKey] = userOptions[considerElementAltKey];
-                        userOptions.Remove(ignoreElementAltKey);
+                        userOptions[considerElementKey] = userOptions[considerElementAltKey];
+                        userOptions.Remove(considerElementAltKey);
                     }
 
                     if(userOptions.ContainsKey(ignoreElementKey)) {
