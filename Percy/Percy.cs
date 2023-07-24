@@ -29,7 +29,9 @@ namespace PercyIO.Selenium
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
         public static readonly string ignoreElementKey = "ignore_region_selenium_elements";
+        public static readonly string ignoreElementAltKey = "ignoreRegionSeleniumElements";
         public static readonly string considerElementKey = "consider_region_selenium_elements";
+        public static readonly string considerElementAltKey = "considerRegionSeleniumElements";
 
         private static void Log<T>(T message)
         {
@@ -198,6 +200,16 @@ namespace PercyIO.Selenium
 
                 if(options != null) {
                     Dictionary<string, object> userOptions = options.ToDictionary(kv => kv.Key, kv => kv.Value);
+
+                    if (userOptions.ContainsKey(ignoreElementAltKey)) {
+                        userOptions[ignoreElementKey] = userOptions[ignoreElementAltKey];
+                        userOptions.Remove(ignoreElementAltKey);
+                    }
+
+                    if (userOptions.ContainsKey(considerElementAltKey)) {
+                        userOptions[considerElementAltKey] = userOptions[considerElementAltKey];
+                        userOptions.Remove(ignoreElementAltKey);
+                    }
 
                     if(userOptions.ContainsKey(ignoreElementKey)) {
                         List<IWebElement>? ignoreElements = userOptions[ignoreElementKey] as List<IWebElement>;

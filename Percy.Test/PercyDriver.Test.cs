@@ -76,7 +76,7 @@ namespace PercyIO.Selenium.Tests
       remoteDriver.Setup(x => x.GetElementIdFromElement(considerElement.Object)).Returns("consider_dummy_element");
       Dictionary<string, object> options = new Dictionary<string, object>();
       options["ignore_region_selenium_elements"] = ignoreElementList;
-      options["consider_region_selenium_elements"] = considerElementList;
+      options["considerRegionSeleniumElements"] = considerElementList;
       mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
         .WithPartialContent("dummy_element")
         .WithPartialContent("consider_dummy_element")
