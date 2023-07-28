@@ -29,6 +29,9 @@ namespace PercyIO.Selenium
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
         public static readonly string ignoreElementKey = "ignore_region_selenium_elements";
+        public static readonly string ignoreElementAltKey = "ignoreRegionSeleniumElements";
+        public static readonly string considerElementKey = "consider_region_selenium_elements";
+        public static readonly string considerElementAltKey = "considerRegionSeleniumElements";
 
         private static void Log<T>(T message)
         {
@@ -198,6 +201,16 @@ namespace PercyIO.Selenium
                 if(options != null) {
                     Dictionary<string, object> userOptions = options.ToDictionary(kv => kv.Key, kv => kv.Value);
 
+                    if (userOptions.ContainsKey(ignoreElementAltKey)) {
+                        userOptions[ignoreElementKey] = userOptions[ignoreElementAltKey];
+                        userOptions.Remove(ignoreElementAltKey);
+                    }
+
+                    if (userOptions.ContainsKey(considerElementAltKey)) {
+                        userOptions[considerElementKey] = userOptions[considerElementAltKey];
+                        userOptions.Remove(considerElementAltKey);
+                    }
+
                     if(userOptions.ContainsKey(ignoreElementKey)) {
                         List<IWebElement>? ignoreElements = userOptions[ignoreElementKey] as List<IWebElement>;
 
@@ -206,6 +219,17 @@ namespace PercyIO.Selenium
                             List<string> elementIds = percyDriver.GetElementIdFromElements(ignoreElements);
                             userOptions.Remove(ignoreElementKey);
                             userOptions["ignore_region_elements"] = elementIds;
+                        }
+                    }
+
+                    if(userOptions.ContainsKey(considerElementKey)) {
+                        List<IWebElement>? considerElements = userOptions[considerElementKey] as List<IWebElement>;
+
+                        if(considerElements != null)
+                        {
+                            List<string> elementIds = percyDriver.GetElementIdFromElements(considerElements);
+                            userOptions.Remove(considerElementKey);
+                            userOptions["consider_region_elements"] = elementIds;
                         }
                     }
                     screenshotOptions.Add("options", userOptions);
