@@ -9,6 +9,7 @@ namespace PercyIO.Selenium
   {
     private IPercySeleniumDriver percySeleniumDriver;
     private String sessionId = "";
+    public static Cache<string, object> cache = new Cache<string, object>();
     internal void setValues(IPercySeleniumDriver percySeleniumDriver)
     {
       this.sessionId = percySeleniumDriver.sessionId();
