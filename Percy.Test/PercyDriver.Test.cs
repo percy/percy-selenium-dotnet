@@ -6,6 +6,7 @@ using OpenQA.Selenium.Remote;
 using Newtonsoft.Json;
 using RichardSzalay.MockHttp;
 using System.Net.Http;
+using System;
 
 namespace PercyIO.Selenium.Tests
 {
@@ -32,6 +33,9 @@ namespace PercyIO.Selenium.Tests
     [Fact]
     public void postScreenshot()
     {
+      Func<bool> oldEnabledFn = Percy.Enabled;
+      Percy.Enabled = () => true;
+      Percy.setSessionType("automate");
       // Setting Expectation
       Dictionary<string, object> expectedResponse = new Dictionary<string, object>()
       {
@@ -55,11 +59,18 @@ namespace PercyIO.Selenium.Tests
       Percy.setHttpClient(new HttpClient(mockHttp));
       percyDriverMock.Object.Screenshot("Screenshot 1");
       mockHttp.VerifyNoOutstandingExpectation();
+      Percy.Enabled = oldEnabledFn;
     }
 
     [Fact]
     public void postScreenshotWithOptions()
     {
+      // Since mockHttp doesn't have functionality to mock response header,
+      // Which is causing version check to break
+      // Overiding function to return true and set Session Type
+      Func<bool> oldEnabledFn = Percy.Enabled;
+      Percy.Enabled = () => true;
+      Percy.setSessionType("automate");
       var mockHttp = new MockHttpMessageHandler();
       var obj = new
       {
@@ -86,6 +97,22 @@ namespace PercyIO.Selenium.Tests
       remoteDriver.Verify(d => d.GetElementIdFromElement(element.Object));
 
       mockHttp.VerifyNoOutstandingExpectation();
+      Percy.Enabled = oldEnabledFn;
+    }
+
+    [Fact]
+    public void postScreenshotThrowExceptionWithWeb()
+    {
+      Func<bool> oldEnabledFn = Percy.Enabled;
+      Percy.Enabled = () => true;
+      Percy.setSessionType("web");
+      try {
+         percyDriverMock.Object.Screenshot("Screenshot 1");
+        Assert.Fail("Exception not raised");
+      } catch (Exception error) {
+        Assert.Equal("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing", error.Message);
+      }
+      Percy.Enabled = oldEnabledFn;
     }
   }
 }

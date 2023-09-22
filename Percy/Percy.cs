@@ -41,6 +41,8 @@ namespace PercyIO.Selenium
 
         private static HttpClient _http = new HttpClient();
 
+        private static string? sessionType = null;
+
         private static string PayloadParser(object? payload = null, bool alreadyJson = false)
         {
             if (alreadyJson) 
@@ -53,6 +55,11 @@ namespace PercyIO.Selenium
         internal static void setHttpClient(HttpClient client)
         {
             _http = client;
+        }
+
+        internal static void setSessionType(String? type)
+        {
+            sessionType = type;
         }
 
         // Added isJson since current JSON parsing doesn’t support nested objects and thats why we using different lib
@@ -89,7 +96,7 @@ namespace PercyIO.Selenium
         }
 
         private static bool? _enabled = null;
-        public static bool Enabled()
+        public static Func<bool> Enabled = () =>
         {
             if (_enabled != null) return (bool) _enabled;
 
@@ -117,6 +124,8 @@ namespace PercyIO.Selenium
                 }
                 else
                 {
+                    data.TryGetProperty("type", out JsonElement type);
+                    setSessionType(type.ToString());
                     return (bool) (_enabled = true);
                 }
             }
@@ -126,7 +135,7 @@ namespace PercyIO.Selenium
                 if (DEBUG) Log<Exception>(error);
                 return (bool) (_enabled = false);
             }
-        }
+        };
 
         public class Options : Dictionary<string, object> {}
 
@@ -135,6 +144,8 @@ namespace PercyIO.Selenium
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             if (!Enabled()) return;
+            if (sessionType == "automate")
+                throw new Exception("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing");
 
             try
             {
@@ -180,6 +191,8 @@ namespace PercyIO.Selenium
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             if(!Enabled()) return;
+            if (sessionType == "web")
+                throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing");
             try
             {
                 Dictionary<string, object> receivedPayload = percyDriver.getPayload();
