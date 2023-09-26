@@ -41,13 +41,22 @@ namespace PercyIO.Selenium
   public ICapabilities GetCapabilities()
   {
     // Implement Cache
-    return this._remoteDriver.Capabilities;
+    var key = "caps_" + sessionId();
+    if (PercyDriver.cache.Get(key) == null) {
+      object capabilities = this._remoteDriver.Capabilities;
+      PercyDriver.cache.Store(key, capabilities);
+    }
+    return (ICapabilities)PercyDriver.cache.Get(key);
   }
 
   public IDictionary<string, object> GetSessionDetails()
   {
-    // Implement Cache
-    return (IDictionary<string, object>)this._remoteDriver.Capabilities;
+    var key = "session_caps_" + sessionId();
+    if (PercyDriver.cache.Get(key) == null) {
+      object session_caps  = this._remoteDriver.Capabilities;
+      PercyDriver.cache.Store(key, session_caps);
+    }
+    return (IDictionary<string, object>)PercyDriver.cache.Get(key);
   }
 
   public String sessionId()
@@ -57,10 +66,14 @@ namespace PercyIO.Selenium
 
   public String GetHost()
   {
-    HttpCommandExecutor executor = (HttpCommandExecutor)(this._remoteDriver).CommandExecutor;
-    FieldInfo remoteServerUriField = typeof(HttpCommandExecutor).GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
-    String commandExecutorUrl = remoteServerUriField.GetValue(executor).ToString();
-    return commandExecutorUrl;
+    var key = "command_executor_" + sessionId();
+    if (PercyDriver.cache.Get(key) == null) {
+      HttpCommandExecutor executor = (HttpCommandExecutor)(this._remoteDriver).CommandExecutor;
+      FieldInfo remoteServerUriField = typeof(HttpCommandExecutor).GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
+      String commandExecutorUrl = remoteServerUriField.GetValue(executor).ToString();
+      PercyDriver.cache.Store(key, commandExecutorUrl);
+    }
+    return (String)PercyDriver.cache.Get(key);
   }
  }
 }
