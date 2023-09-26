@@ -197,5 +197,20 @@ namespace PercyIO.Selenium.Tests
                 Stdout()
             );
         }
+
+        [Fact]
+        public void PostSnapshotThrowExceptionWithAutomate()
+        {
+            Func<bool> oldEnabledFn = Percy.Enabled;
+            Percy.Enabled = () => true;
+            Percy.setSessionType("automate");
+            try {
+                Percy.Snapshot(driver, "Snapshot 1");
+                Assert.Fail("Exception not raised");
+            } catch (Exception error) {
+                Assert.Equal("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing", error.Message);
+            }
+            Percy.Enabled = oldEnabledFn;
+        }
     }
 }
