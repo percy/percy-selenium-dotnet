@@ -152,14 +152,14 @@ class Program
     - `customIgnoreRegions` - List of custom objects. elements can be ignored using custom boundaries. Just passing a simple object for it like below.
       - Refer to example -
         - ```
-          List<HashMap> customRegion = new ArrayList<>();
-          HashMap<String, Integer> region1 = new HashMap<>();
-          region1.put("top", 10);
-          region1.put("bottom", 110);
-          region1.put("right", 10);
-          region1.put("left", 120);
-          customRegion.add(region1);
-          options.put("custom_ignore_regions", customRegion);
+          List<object> ignoreCustomElement = new List<object>();
+          var region1 = new Dictionary<string, int>();
+          region1.Add("top", 10);
+          region1.Add("bottom", 120);
+          region1.Add("right", 10);
+          region1.Add("left", 10);
+          ignoreCustomElement.Add(element);
+          region1.Add("custom_ignore_regions", ignoreCustomElement);
           ```
     - `considerRegionXpaths` - List of xpaths. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using xpaths.
     - `considerRegionSelectors` - List of selectors. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using selectors.
@@ -167,14 +167,14 @@ class Program
     - `customConsiderRegions` - List of custom objects. elements can be considered for diffing and will be ignored by Intelli Ignore using custom boundaries
       - Refer to example -
         - ```
-          List<HashMap> customRegion = new ArrayList<>();
-          HashMap<String, Integer> region2 = new HashMap<>();
-          region2.put("top", 10);
-          region2.put("bottom", 110);
-          region2.put("right", 10);
-          region2.put("left", 120);
-          customRegion.add(region2);
-          options.put("custom_consider_regions", customRegion);
+          List<object> considerCustomElement = new List<object>();
+          var region2 = new Dictionary<string, int>();
+          region2.Add("top", 10);
+          region2.Add("bottom", 120);
+          region2.Add("right", 10);
+          region2.Add("left", 10);
+          considerCustomElement.Add(element);
+          region2.Add("custom_consider_regions", considerCustomElement);
           ```
         - Parameters:
           - `top` (int): Top coordinate of the consider region.
