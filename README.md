@@ -158,7 +158,7 @@ class Program
           region1.Add("bottom", 120);
           region1.Add("right", 10);
           region1.Add("left", 10);
-          ignoreCustomElement.Add(element);
+          ignoreCustomElement.Add(region1);
           region1.Add("custom_ignore_regions", ignoreCustomElement);
           ```
     - `considerRegionXpaths` - List of xpaths. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using xpaths.
@@ -173,7 +173,7 @@ class Program
           region2.Add("bottom", 120);
           region2.Add("right", 10);
           region2.Add("left", 10);
-          considerCustomElement.Add(element);
+          considerCustomElement.Add(region2);
           region2.Add("custom_consider_regions", considerCustomElement);
           ```
         - Parameters:
