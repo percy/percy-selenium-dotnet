@@ -153,12 +153,12 @@ class Program
       - Refer to example -
         - ```
           List<HashMap> customRegion = new ArrayList<>();
-          HashMap<String, Integer> ele = new HashMap<>();
-          ele.put("top", 10);
-          ele.put("bottom", 110);
-          ele.put("right", 10);
-          ele.put("left", 120);
-          customRegion.add(ele);
+          HashMap<String, Integer> region1 = new HashMap<>();
+          region1.put("top", 10);
+          region1.put("bottom", 110);
+          region1.put("right", 10);
+          region1.put("left", 120);
+          customRegion.add(region1);
           options.put("custom_ignore_regions", customRegion);
           ```
     - `considerRegionXpaths` - List of xpaths. elements in the DOM can be considered for diffing and will be ignored by Intelli Ignore using xpaths.
@@ -168,12 +168,12 @@ class Program
       - Refer to example -
         - ```
           List<HashMap> customRegion = new ArrayList<>();
-          HashMap<String, Integer> ele = new HashMap<>();
-          ele.put("top", 10);
-          ele.put("bottom", 110);
-          ele.put("right", 10);
-          ele.put("left", 120);
-          customRegion.add(ele);
+          HashMap<String, Integer> region2 = new HashMap<>();
+          region2.put("top", 10);
+          region2.put("bottom", 110);
+          region2.put("right", 10);
+          region2.put("left", 120);
+          customRegion.add(region2);
           options.put("custom_consider_regions", customRegion);
           ```
         - Parameters:
