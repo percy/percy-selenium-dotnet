@@ -32,6 +32,7 @@ namespace PercyIO.Selenium
         public static readonly string ignoreElementAltKey = "ignoreRegionSeleniumElements";
         public static readonly string considerElementKey = "consider_region_selenium_elements";
         public static readonly string considerElementAltKey = "considerRegionSeleniumElements";
+        public static readonly string sync = "sync";
 
         private static void Log<T>(T message)
         {
@@ -67,6 +68,8 @@ namespace PercyIO.Selenium
         {
             StringContent? body = payload == null ? null : new StringContent(
                 PayloadParser(payload, isJson), Encoding.UTF8, "application/json");
+            _http = new HttpClient();
+            _http.Timeout = TimeSpan.FromMinutes(10);
             Task<HttpResponseMessage> apiTask = body != null
                 ? _http.PostAsync($"{CLI_API}{endpoint}", body)
                 : _http.GetAsync($"{CLI_API}{endpoint}");
@@ -141,7 +144,8 @@ namespace PercyIO.Selenium
 
         public static void Snapshot(
             WebDriver driver, string name,
-            IEnumerable<KeyValuePair<string, object>>? options = null)
+            IEnumerable<KeyValuePair<string, object>>? options = null,
+            Boolean sync = false)
         {
             if (!Enabled()) return;
             if (sessionType == "automate")
@@ -160,7 +164,8 @@ namespace PercyIO.Selenium
                     { "environmentInfo", ENVIRONMENT_INFO },
                     { "domSnapshot", domSnapshot },
                     { "url", driver.Url },
-                    { "name", name }
+                    { "name", name },
+                    { "sync", sync }
                 };
 
                 if (options != null)
@@ -244,6 +249,10 @@ namespace PercyIO.Selenium
                             userOptions.Remove(considerElementKey);
                             userOptions["consider_region_elements"] = elementIds;
                         }
+                    }
+
+                    if(!userOptions.ContainsKey(sync)) {
+                        userOptions["sync"] = false;
                     }
                     screenshotOptions.Add("options", userOptions);
                 }
