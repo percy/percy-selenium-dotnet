@@ -62,6 +62,8 @@ namespace PercyIO.Selenium.Tests
         {
             StringContent? body = payload == null ? null : new StringContent(
                 JsonSerializer.Serialize(payload).ToString(), Encoding.UTF8, "application/json");
+            _http = new HttpClient();
+            _http.Timeout = TimeSpan.FromMinutes(10);
             Task<HttpResponseMessage> apiTask = body != null
                 ? _http.PostAsync($"{Percy.CLI_API}{endpoint}", body)
                 : _http.GetAsync($"{Percy.CLI_API}{endpoint}");
