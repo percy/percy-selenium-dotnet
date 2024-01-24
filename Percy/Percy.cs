@@ -32,7 +32,7 @@ namespace PercyIO.Selenium
         public static readonly string ignoreElementAltKey = "ignoreRegionSeleniumElements";
         public static readonly string considerElementKey = "consider_region_selenium_elements";
         public static readonly string considerElementAltKey = "considerRegionSeleniumElements";
-        public static readonly string sync = "sync";
+        public static readonly string SYNC = "sync";
 
         private static void Log<T>(T message)
         {
@@ -142,12 +142,12 @@ namespace PercyIO.Selenium
 
         public class Options : Dictionary<string, object> {}
 
-        public static void Snapshot(
+        public static JObject Snapshot(
             WebDriver driver, string name,
             IEnumerable<KeyValuePair<string, object>>? options = null,
             Boolean sync = false)
         {
-            if (!Enabled()) return;
+            if (!Enabled()) return null;
             if (sessionType == "automate")
                 throw new Exception("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing");
 
@@ -177,25 +177,31 @@ namespace PercyIO.Selenium
 
                 if (data.GetProperty("success").GetBoolean() != true)
                     throw new Exception(data.GetProperty("error").GetString());
+                if (sync) {
+                    return JObject.FromObject(data.GetProperty("data"));
+                }
+                return null;
             }
             catch(Exception error)
             {
                 Log($"Could not take DOM snapshot \"{name}\"");
                 Log(error);
+                return null;
             }
         }
 
-        public static void Screenshot(WebDriver driver, string name, IEnumerable<KeyValuePair<string, object>>? options = null)
+        public static JObject Screenshot(WebDriver driver, string name, IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
-            percyDriver.Screenshot(name, options);
+            return percyDriver.Screenshot(name, options);
         }
 
-        public static void Screenshot(
+        public static JObject Screenshot(
             PercyDriver percyDriver, string name,
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
-            if(!Enabled()) return;
+            var isSync = false;
+            if(!Enabled()) return null;
             if (sessionType == "web")
                 throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing");
             try
@@ -250,9 +256,10 @@ namespace PercyIO.Selenium
                             userOptions["consider_region_elements"] = elementIds;
                         }
                     }
-
-                    if(!userOptions.ContainsKey(sync)) {
-                        userOptions["sync"] = false;
+                    userOptions[SYNC] = isSync;
+                    if(userOptions.ContainsKey(SYNC)) {
+                        isSync = (bool)userOptions[SYNC];
+                        
                     }
                     screenshotOptions.Add("options", userOptions);
                 }
@@ -261,31 +268,36 @@ namespace PercyIO.Selenium
                 dynamic data = JsonSerializer.Deserialize<object>(res.content);
                 if (data.GetProperty("success").GetBoolean() != true)
                     throw new Exception(data.GetProperty("error").GetString());
+                if (isSync) {
+                    return JObject.FromObject(data.GetProperty("data"));
+                }
+                return null;
             }
             catch(Exception error)
             {
                 Log($"Could not take Percy Screenshot \"{name}\"");
                 Log(error);
+                return null;
             }
         }
 
-        public static void Snapshot(WebDriver driver, string name, object opts)
+        public static JObject Snapshot(WebDriver driver, string name, object opts, bool sync = false)
         {
             Options options = new Options();
 
             foreach (PropertyDescriptor prop in TypeDescriptor.GetProperties(opts))
                 options.Add(prop.Name, prop.GetValue(opts));
 
-            Snapshot(driver, name, options);
+            return Snapshot(driver, name, options, sync);
         }
 
-        public static void Screenshot(WebDriver driver, string name, object opts) {
+        public static JObject Screenshot(WebDriver driver, string name, object opts) {
             Options options = new Options();
             
             foreach (PropertyDescriptor prop in TypeDescriptor.GetProperties(opts))
                 options.Add(prop.Name, prop.GetValue(opts));
             
-            Screenshot(driver, name, options);
+            return Screenshot(driver, name, options);
         }
 
         public static void ResetInternalCaches()
