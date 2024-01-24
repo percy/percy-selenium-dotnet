@@ -28,6 +28,10 @@ namespace PercyIO.Selenium
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
+        public static readonly bool IsRunningFromXUnit = 
+        AppDomain.CurrentDomain.GetAssemblies().Any(
+            a => a.FullName.ToLowerInvariant().StartsWith("xunit.runner"));
+
         public static readonly string ignoreElementKey = "ignore_region_selenium_elements";
         public static readonly string ignoreElementAltKey = "ignoreRegionSeleniumElements";
         public static readonly string considerElementKey = "consider_region_selenium_elements";
@@ -68,8 +72,10 @@ namespace PercyIO.Selenium
         {
             StringContent? body = payload == null ? null : new StringContent(
                 PayloadParser(payload, isJson), Encoding.UTF8, "application/json");
-            _http = new HttpClient();
-            _http.Timeout = TimeSpan.FromMinutes(10);
+            if (!IsRunningFromXUnit) {
+                _http = new HttpClient();
+                _http.Timeout = TimeSpan.FromMinutes(10);
+            }
             Task<HttpResponseMessage> apiTask = body != null
                 ? _http.PostAsync($"{CLI_API}{endpoint}", body)
                 : _http.GetAsync($"{CLI_API}{endpoint}");
