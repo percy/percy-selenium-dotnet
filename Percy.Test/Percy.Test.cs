@@ -121,10 +121,10 @@ namespace PercyIO.Selenium.Tests
             Percy.Snapshot(driver, "Snapshot 1");
             Percy.Snapshot(driver, "Snapshot 2", new {
                     enableJavaScript = true
-                }, false);
+                });
             Percy.Snapshot(driver, "Snapshot 3", new Percy.Options {
                 { "enableJavaScript", true }
-                }, false);
+                });
 
             JsonElement data = Request("/test/logs");
             List<string> logs = new List<string>();

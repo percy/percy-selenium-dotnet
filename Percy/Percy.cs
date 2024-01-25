@@ -150,8 +150,7 @@ namespace PercyIO.Selenium
 
         public static JObject Snapshot(
             WebDriver driver, string name,
-            IEnumerable<KeyValuePair<string, object>>? options = null,
-            Boolean sync = false)
+            IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             if (!Enabled()) return null;
             if (sessionType == "automate")
@@ -170,8 +169,7 @@ namespace PercyIO.Selenium
                     { "environmentInfo", ENVIRONMENT_INFO },
                     { "domSnapshot", domSnapshot },
                     { "url", driver.Url },
-                    { "name", name },
-                    { "sync", sync }
+                    { "name", name }
                 };
 
                 if (options != null)
@@ -183,7 +181,7 @@ namespace PercyIO.Selenium
 
                 if (data.GetProperty("success").GetBoolean() != true)
                     throw new Exception(data.GetProperty("error").GetString());
-                if (sync) {
+                if (snapshotOptions[SYNC] != null && (bool)snapshotOptions[SYNC] == true) {
                     return JObject.FromObject(data.GetProperty("data"));
                 }
                 return null;
@@ -262,7 +260,6 @@ namespace PercyIO.Selenium
                             userOptions["consider_region_elements"] = elementIds;
                         }
                     }
-                    userOptions[SYNC] = isSync;
                     if(userOptions.ContainsKey(SYNC)) {
                         isSync = (bool)userOptions[SYNC];
                         
@@ -287,14 +284,14 @@ namespace PercyIO.Selenium
             }
         }
 
-        public static JObject Snapshot(WebDriver driver, string name, object opts, bool sync = false)
+        public static JObject Snapshot(WebDriver driver, string name, object opts)
         {
             Options options = new Options();
 
             foreach (PropertyDescriptor prop in TypeDescriptor.GetProperties(opts))
                 options.Add(prop.Name, prop.GetValue(opts));
 
-            return Snapshot(driver, name, options, sync);
+            return Snapshot(driver, name, options);
         }
 
         public static JObject Screenshot(WebDriver driver, string name, object opts) {
