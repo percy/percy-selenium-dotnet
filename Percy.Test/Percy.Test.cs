@@ -182,6 +182,42 @@ namespace PercyIO.Selenium.Tests
         }
 
         [Fact]
+        public void PostsSnapshotWithSync()
+        {
+            Percy.Snapshot(driver, "Snapshot 1", new {
+                    sync = true
+                });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            List<string> expected = new List<string> {
+                "---------",
+                "Received snapshot: Snapshot 1",
+                "- url: http://localhost:5338/test/snapshot",
+                "- widths: 375px, 1280px",
+                "- minHeight: 1024px",
+                "- enableJavaScript: false",
+                "- cliEnableJavaScript: true",
+                "- disableShadowDOM: false",
+                "- discovery.allowedHostnames: localhost",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
+                "- domSnapshot: true",
+                "The Synchronous CLI functionality is not compatible with skipUploads option.",
+                "Snapshot found: Snapshot 1",
+            };
+
+            foreach (int i in expected.Select((v, i) => i))
+                Assert.Equal(expected[i], logs[i]);
+        }
+
+        [Fact]
         public void HandlesExceptionsDuringSnapshot()
         {
             Request("/test/api/error", "/percy/snapshot");

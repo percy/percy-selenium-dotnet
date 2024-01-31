@@ -7,6 +7,7 @@ using Newtonsoft.Json;
 using RichardSzalay.MockHttp;
 using System.Net.Http;
 using System;
+using Newtonsoft.Json.Linq;
 
 namespace PercyIO.Selenium.Tests
 {
@@ -58,6 +59,42 @@ namespace PercyIO.Selenium.Tests
         .Respond("application/json", JsonConvert.SerializeObject(obj));
       Percy.setHttpClient(new HttpClient(mockHttp));
       percyDriverMock.Object.Screenshot("Screenshot 1");
+      mockHttp.VerifyNoOutstandingExpectation();
+      Percy.Enabled = oldEnabledFn;
+    }
+
+    [Fact]
+    public void postScreenshotWithSync()
+    {
+      Func<bool> oldEnabledFn = Percy.Enabled;
+      Percy.Enabled = () => true;
+      Percy.setSessionType("automate");
+      // Setting Expectation
+      Dictionary<string, object> expectedResponse = new Dictionary<string, object>()
+      {
+        { "sessionId", "123" },
+        { "commandExecutorUrl", "http://hub-cloud.browserstack.com/wd/hub" },
+        { "capabilities", capabilities.Object }
+      };
+      // Testing Payload Function
+      Assert.Equal(expectedResponse, percyDriverMock.Object.getPayload());
+
+      var syncData = JObject.Parse("{'name': 'snapshot'}");
+      var mockHttp = new MockHttpMessageHandler();
+      var obj = new
+      {
+        success = true,
+        version = "1.0",
+        data = syncData
+      };
+      mockHttp.Fallback.Respond(new HttpClient());
+      mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+        .WithPartialContent("Screenshot 1")
+        .Respond("application/json", JsonConvert.SerializeObject(obj));
+      Percy.setHttpClient(new HttpClient(mockHttp));
+      Dictionary<string, object> options = new Dictionary<string, object>();
+      options["sync"] = true;
+      Assert.Equal(percyDriverMock.Object.Screenshot("Screenshot 1", options), syncData);
       mockHttp.VerifyNoOutstandingExpectation();
       Percy.Enabled = oldEnabledFn;
     }
