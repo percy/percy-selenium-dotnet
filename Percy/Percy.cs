@@ -28,15 +28,10 @@ namespace PercyIO.Selenium
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
 
-        public static readonly bool IsRunningFromXUnit = 
-        AppDomain.CurrentDomain.GetAssemblies().Any(
-            a => a.FullName.ToLowerInvariant().StartsWith("xunit.runner"));
-
         public static readonly string ignoreElementKey = "ignore_region_selenium_elements";
         public static readonly string ignoreElementAltKey = "ignoreRegionSeleniumElements";
         public static readonly string considerElementKey = "consider_region_selenium_elements";
         public static readonly string considerElementAltKey = "considerRegionSeleniumElements";
-        public static readonly string SYNC = "sync";
 
         private static void Log<T>(T message)
         {
@@ -44,7 +39,7 @@ namespace PercyIO.Selenium
             Console.WriteLine($"[\u001b[35m{label}\u001b[39m] {message}");
         }
 
-        private static HttpClient _http = new HttpClient();
+        private static HttpClient? _http;
 
         private static string? sessionType = null;
 
@@ -62,6 +57,15 @@ namespace PercyIO.Selenium
             _http = client;
         }
 
+        internal static HttpClient getHttpClient() {
+            if (_http == null) {
+                setHttpClient(new HttpClient());
+                _http.Timeout = TimeSpan.FromMinutes(10);
+            }
+            
+            return _http;
+        }
+
         internal static void setSessionType(String? type)
         {
             sessionType = type;
@@ -72,13 +76,11 @@ namespace PercyIO.Selenium
         {
             StringContent? body = payload == null ? null : new StringContent(
                 PayloadParser(payload, isJson), Encoding.UTF8, "application/json");
-            if (!IsRunningFromXUnit) {
-                _http = new HttpClient();
-                _http.Timeout = TimeSpan.FromMinutes(10);
-            }
+            
+            HttpClient httpClient = getHttpClient();
             Task<HttpResponseMessage> apiTask = body != null
-                ? _http.PostAsync($"{CLI_API}{endpoint}", body)
-                : _http.GetAsync($"{CLI_API}{endpoint}");
+                ? httpClient.PostAsync($"{CLI_API}{endpoint}", body)
+                : httpClient.GetAsync($"{CLI_API}{endpoint}");
             apiTask.Wait();
 
             HttpResponseMessage response = apiTask.Result;
@@ -181,8 +183,8 @@ namespace PercyIO.Selenium
 
                 if (data.GetProperty("success").GetBoolean() != true)
                     throw new Exception(data.GetProperty("error").GetString());
-                if (snapshotOptions[SYNC] != null && (bool)snapshotOptions[SYNC] == true) {
-                    return JObject.FromObject(data.GetProperty("data"));
+                if (data.TryGetProperty("data", out JsonElement results)) {
+                    return JObject.Parse(results.GetRawText());
                 }
                 return null;
             }
@@ -204,7 +206,6 @@ namespace PercyIO.Selenium
             PercyDriver percyDriver, string name,
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
-            var isSync = false;
             if(!Enabled()) return null;
             if (sessionType == "web")
                 throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing");
@@ -260,10 +261,6 @@ namespace PercyIO.Selenium
                             userOptions["consider_region_elements"] = elementIds;
                         }
                     }
-                    if(userOptions.ContainsKey(SYNC)) {
-                        isSync = (bool)userOptions[SYNC];
-                        
-                    }
                     screenshotOptions.Add("options", userOptions);
                 }
 
@@ -271,8 +268,9 @@ namespace PercyIO.Selenium
                 dynamic data = JsonSerializer.Deserialize<object>(res.content);
                 if (data.GetProperty("success").GetBoolean() != true)
                     throw new Exception(data.GetProperty("error").GetString());
-                if (isSync) {
-                    return JObject.FromObject(data.GetProperty("data"));
+
+                if (data.TryGetProperty("data", out JsonElement results)) {
+                    return JObject.Parse(results.GetRawText());
                 }
                 return null;
             }

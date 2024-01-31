@@ -1,3 +1,4 @@
+using Xunit;
 using System;
 using System.IO;
 using System.Linq;
@@ -8,9 +9,8 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using OpenQA.Selenium.Firefox;
-using WebDriverManager.DriverConfigs.Impl;
 using WebDriverManager;
-using Xunit;
+using WebDriverManager.DriverConfigs.Impl;
 
 namespace PercyIO.Selenium.Tests
 {
