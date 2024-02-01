@@ -150,7 +150,7 @@ namespace PercyIO.Selenium
 
         public class Options : Dictionary<string, object> {}
 
-        public static JObject Snapshot(
+        public static JObject? Snapshot(
             WebDriver driver, string name,
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
@@ -196,13 +196,13 @@ namespace PercyIO.Selenium
             }
         }
 
-        public static JObject Screenshot(WebDriver driver, string name, IEnumerable<KeyValuePair<string, object>>? options = null)
+        public static JObject? Screenshot(WebDriver driver, string name, IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
             return percyDriver.Screenshot(name, options);
         }
 
-        public static JObject Screenshot(
+        public static JObject? Screenshot(
             PercyDriver percyDriver, string name,
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
@@ -282,7 +282,7 @@ namespace PercyIO.Selenium
             }
         }
 
-        public static JObject Snapshot(WebDriver driver, string name, object opts)
+        public static JObject? Snapshot(WebDriver driver, string name, object opts)
         {
             Options options = new Options();
 
@@ -292,7 +292,7 @@ namespace PercyIO.Selenium
             return Snapshot(driver, name, options);
         }
 
-        public static JObject Screenshot(WebDriver driver, string name, object opts) {
+        public static JObject? Screenshot(WebDriver driver, string name, object opts) {
             Options options = new Options();
             
             foreach (PropertyDescriptor prop in TypeDescriptor.GetProperties(opts))
