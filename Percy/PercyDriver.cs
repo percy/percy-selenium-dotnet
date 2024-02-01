@@ -2,6 +2,7 @@ using System;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Remote;
 using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
 
 namespace PercyIO.Selenium
 {
@@ -54,9 +55,9 @@ namespace PercyIO.Selenium
       setValues(this.percySeleniumDriver);
     }
 
-    public void Screenshot(String name, IEnumerable<KeyValuePair<string, object>>? options = null)
+    public JObject Screenshot(String name, IEnumerable<KeyValuePair<string, object>>? options = null)
     {
-      Percy.Screenshot(this, name, options);
+      return Percy.Screenshot(this, name, options);
     }
   }
 }

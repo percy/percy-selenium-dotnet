@@ -8,12 +8,9 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Runtime.InteropServices;
-using OpenQA.Selenium;
 using OpenQA.Selenium.Firefox;
 using WebDriverManager;
 using WebDriverManager.DriverConfigs.Impl;
-using PercyIO.Selenium;
 
 namespace PercyIO.Selenium.Tests
 {
@@ -148,6 +145,7 @@ namespace PercyIO.Selenium.Tests
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
                 "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -161,6 +159,7 @@ namespace PercyIO.Selenium.Tests
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
                 "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -174,10 +173,48 @@ namespace PercyIO.Selenium.Tests
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
                 "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
                 "Snapshot found: Snapshot 3",
+            };
+
+            foreach (int i in expected.Select((v, i) => i))
+                Assert.Equal(expected[i], logs[i]);
+        }
+
+        [Fact]
+        public void PostsSnapshotWithSync()
+        {
+            Percy.Snapshot(driver, "Snapshot 1", new {
+                    sync = true
+                });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            List<string> expected = new List<string> {
+                "---------",
+                "Received snapshot: Snapshot 1",
+                "- url: http://localhost:5338/test/snapshot",
+                "- widths: 375px, 1280px",
+                "- minHeight: 1024px",
+                "- enableJavaScript: false",
+                "- cliEnableJavaScript: true",
+                "- disableShadowDOM: false",
+                "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
+                "- domSnapshot: true",
+                "The Synchronous CLI functionality is not compatible with skipUploads option.",
+                "Snapshot found: Snapshot 1",
             };
 
             foreach (int i in expected.Select((v, i) => i))
