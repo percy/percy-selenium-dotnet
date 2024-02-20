@@ -207,7 +207,7 @@ namespace PercyIO.Selenium
             IEnumerable<KeyValuePair<string, object>>? options = null)
         {
             if(!Enabled()) return null;
-            if (sessionType == "web")
+            if (sessionType != "automate")
                 throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing");
             try
             {
