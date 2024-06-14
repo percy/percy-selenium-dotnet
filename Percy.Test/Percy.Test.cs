@@ -99,7 +99,7 @@ namespace PercyIO.Selenium.Tests
                 "[percy] You may be using @percy/agent " +
                 "which is no longer supported by this SDK. " +
                 "Please uninstall @percy/agent and install @percy/cli instead. " +
-                "https://docs.percy.io/docs/migrating-to-percy-cli\n",
+                "https://www.browserstack.com/docs/percy/migration/migrate-to-cli\n",
                 Stdout()
             );
         }
@@ -245,7 +245,7 @@ namespace PercyIO.Selenium.Tests
                 Percy.Snapshot(driver, "Snapshot 1");
                 Assert.Fail("Exception not raised");
             } catch (Exception error) {
-                Assert.Equal("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing", error.Message);
+                Assert.Equal("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual", error.Message);
             }
             Percy.Enabled = oldEnabledFn;
         }

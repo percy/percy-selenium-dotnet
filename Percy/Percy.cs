@@ -125,7 +125,7 @@ namespace PercyIO.Selenium
                     Log("You may be using @percy/agent " +
                         "which is no longer supported by this SDK. " +
                         "Please uninstall @percy/agent and install @percy/cli instead. " +
-                        "https://docs.percy.io/docs/migrating-to-percy-cli");
+                        "https://www.browserstack.com/docs/percy/migration/migrate-to-cli");
                     return (bool) (_enabled = false);
                 }
                 else if (res.version[0] != '1')
@@ -156,7 +156,7 @@ namespace PercyIO.Selenium
         {
             if (!Enabled()) return null;
             if (sessionType == "automate")
-                throw new Exception("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://docs.percy.io/docs/integrate-functional-testing-with-visual-testing");
+                throw new Exception("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual");
 
             try
             {
@@ -208,7 +208,7 @@ namespace PercyIO.Selenium
         {
             if(!Enabled()) return null;
             if (sessionType != "automate")
-                throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing");
+                throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview");
             try
             {
                 Dictionary<string, object> receivedPayload = percyDriver.getPayload();
