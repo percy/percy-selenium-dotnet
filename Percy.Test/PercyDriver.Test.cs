@@ -147,7 +147,7 @@ namespace PercyIO.Selenium.Tests
          percyDriverMock.Object.Screenshot("Screenshot 1");
         Assert.Fail("Exception not raised");
       } catch (Exception error) {
-        Assert.Equal("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://docs.percy.io/docs/end-to-end-testing", error.Message);
+        Assert.Equal("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview", error.Message);
       }
       Percy.Enabled = oldEnabledFn;
     }

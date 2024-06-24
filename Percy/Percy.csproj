@@ -16,7 +16,7 @@
     <Copyright>Copyright Perceptual Inc</Copyright>
     <Authors>percy-admin</Authors>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <PackageProjectUrl>https://docs.percy.io/docs/selenium-dotnet</PackageProjectUrl>
+    <PackageProjectUrl>https://www.browserstack.com/docs/percy/integrate/selenium/dotnet</PackageProjectUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/percy/percy-selenium-dotnet</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
