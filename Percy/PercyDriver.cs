@@ -55,7 +55,7 @@ namespace PercyIO.Selenium
       setValues(this.percySeleniumDriver);
     }
 
-    public JObject Screenshot(String name, IEnumerable<KeyValuePair<string, object>>? options = null)
+    public JObject Screenshot(String name, Dictionary<string, object>? options = null)
     {
       return Percy.Screenshot(this, name, options);
     }
