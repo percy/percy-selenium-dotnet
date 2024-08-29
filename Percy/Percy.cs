@@ -152,7 +152,7 @@ namespace PercyIO.Selenium
 
         public static JObject? Snapshot(
             WebDriver driver, string name,
-            IEnumerable<KeyValuePair<string, object>>? options = null)
+            Dictionary<string, object>? options = null)
         {
             if (!Enabled()) return null;
             if (sessionType == "automate")
@@ -196,7 +196,7 @@ namespace PercyIO.Selenium
             }
         }
 
-        public static JObject? Screenshot(WebDriver driver, string name, IEnumerable<KeyValuePair<string, object>>? options = null)
+        public static JObject? Screenshot(WebDriver driver, string name, Dictionary<string, object>? options = null)
         {
             PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
             return percyDriver.Screenshot(name, options);
@@ -204,7 +204,7 @@ namespace PercyIO.Selenium
 
         public static JObject? Screenshot(
             PercyDriver percyDriver, string name,
-            IEnumerable<KeyValuePair<string, object>>? options = null)
+            Dictionary<string, object>? options = null)
         {
             if(!Enabled()) return null;
             if (sessionType != "automate")
