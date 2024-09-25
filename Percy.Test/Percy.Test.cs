@@ -76,6 +76,16 @@ namespace PercyIO.Selenium.Tests
             return JsonSerializer.Deserialize<JsonElement>(contentTask.Result);
         }
 
+        public static void AssertLogs(List<string> expected, List<string> logs) {
+            foreach (int i in expected.Select((v, i) => i)) {
+                if (Regex.IsMatch(expected[i], @".*userAgent.*")) {
+                    Assert.Matches(expected[i], logs[i]);
+                    continue;    
+                }
+                Assert.Equal(expected[i], logs[i]);
+            }
+        }
+
         [Fact]
         public void DisablesSnapshotsWhenHealthcheckFails()
         {
@@ -149,6 +159,7 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
+                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",
                 "---------",
                 "Received snapshot: Snapshot 2",
@@ -163,6 +174,7 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
+                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 2",
                 "---------",
                 "Received snapshot: Snapshot 3",
@@ -177,11 +189,11 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
+                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 3",
             };
 
-            foreach (int i in expected.Select((v, i) => i))
-                Assert.Equal(expected[i], logs[i]);
+            AssertLogs(expected, logs);
         }
 
         [Fact]
@@ -213,12 +225,73 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
+                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "The Synchronous CLI functionality is not compatible with skipUploads option.",
                 "Snapshot found: Snapshot 1",
             };
 
-            foreach (int i in expected.Select((v, i) => i))
-                Assert.Equal(expected[i], logs[i]);
+            AssertLogs(expected, logs);
+        }
+
+        [Fact]
+        public void PostsSnapshotWithResponsiveSnapshotCapture()
+        {
+            Request("/test/api/widths", new { config = new List<int> {375, 800}, mobile = new List<int> {390} });
+            Percy.Snapshot(driver, "Snapshot 1", new {
+                    responsiveSnapshotCapture = true
+            });
+
+            Percy.Snapshot(driver, "Snapshot 2", new {
+                responsiveSnapshotCapture = true,
+                widths = new List<int> {500, 900, 1200}
+            });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            List<string> expected = new List<string> {
+                // This happens because of firefox limitation to resize below 450px.
+                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 390",
+                "---------",
+                "Received snapshot: Snapshot 1",
+                "- url: http://localhost:5338/test/snapshot",
+                "- widths: 375px, 800px",
+                "- minHeight: 1024px",
+                "- enableJavaScript: false",
+                "- cliEnableJavaScript: true",
+                "- disableShadowDOM: false",
+                "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
+                "- domSnapshot: true, true, true",
+                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
+                "Snapshot found: Snapshot 1",
+                "---------",
+                "Received snapshot: Snapshot 2",
+                "- url: http://localhost:5338/test/snapshot",
+                "- widths: 500px, 900px, 1200px",
+                "- minHeight: 1024px",
+                "- enableJavaScript: false",
+                "- cliEnableJavaScript: true",
+                "- disableShadowDOM: false",
+                "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
+                "- domSnapshot: true, true, true, true",
+                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
+                "Snapshot found: Snapshot 2",
+            };
+
+            AssertLogs(expected, logs);
+            // reset to original value
+            Request("/test/api/widths", new { config = new List<int> {375, 1280}, mobile = new List<int> {} });
         }
 
         [Fact]
