@@ -190,11 +190,8 @@ namespace PercyIO.Selenium
         return domSnapshot;
     }
 
-    private static List<int>? _widthsForMultiDom = null;
     private static List<int> GetWidthsForMultiDom(int[] widths)
     {
-        if (_widthsForMultiDom != null) return _widthsForMultiDom;
-
         var fetchedWidthsElement = (JsonElement)eligibleWidths;
         var allWidths = fetchedWidthsElement.GetProperty("mobile")
                                         .EnumerateArray()
