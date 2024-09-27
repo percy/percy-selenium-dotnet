@@ -304,6 +304,10 @@ namespace PercyIO.Selenium
         private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options) 
         {
             JsonElement config = (JsonElement) cliConfig;
+            if (config.GetProperty("percy").TryGetProperty("deferUploads", out JsonElement deferUploadsProperty)) {
+                if (deferUploadsProperty.GetBoolean()) { return false; }
+            }
+
             return (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"] ||
                     config.GetProperty("snapshot").GetProperty("responsiveSnapshotCapture").GetBoolean());
         }

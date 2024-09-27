@@ -49,7 +49,7 @@ namespace PercyIO.Selenium.Tests
             driver.Navigate().GoToUrl($"{Percy.CLI_API}/test/snapshot");
 
             Percy.ResetInternalCaches();
-            Request("/test/api/widths", new { config = new List<int> {375, 1280}, mobile = new List<int> {} });
+            Request("/test/api/config", new { config = new List<int> {375, 1280}, mobile = new List<int> {} });
             Request("/test/api/reset");
         }
 
@@ -237,7 +237,7 @@ namespace PercyIO.Selenium.Tests
         [Fact]
         public void PostsSnapshotWithResponsiveSnapshotCapture()
         {
-            Request("/test/api/widths", new { config = new List<int> {375, 800}, mobile = new List<int> {390} });
+            Request("/test/api/config", new { config = new List<int> {375, 800}, mobile = new List<int> {390} });
             Percy.Snapshot(driver, "Snapshot 1", new {
                     responsiveSnapshotCapture = true
             });
@@ -278,7 +278,7 @@ namespace PercyIO.Selenium.Tests
         [Fact]
         public void PostsSnapshotWithResponsiveSnapshotCapturWithCLIOptions()
         {
-            Request("/test/api/widths", new { responsive = true, config = new List<int> {375, 800} });
+            Request("/test/api/config", new { responsive = true, config = new List<int> {375, 800} });
             Percy.Snapshot(driver, "Snapshot 2", new {
                 widths = new List<int> {500, 900, 1200}
             });
@@ -307,6 +307,43 @@ namespace PercyIO.Selenium.Tests
                 "- domSnapshot: true, true, true",
                 @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 2",
+            };
+
+            AssertLogs(expected, logs);
+        }
+
+        [Fact]
+        public void PostsSnapshotWithResponsiveSnapshotCapturWithDeferUploads()
+        {
+            Request("/test/api/config", new { deferUploads = true, responsive = true, config = new List<int> {375, 800} });
+            Percy.Snapshot(driver, "Snapshot 3", new {
+                widths = new List<int> {500, 900, 1200}
+            });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            List<string> expected = new List<string> {
+                "---------",
+                "Received snapshot: Snapshot 3",
+                "- url: http://localhost:5338/test/snapshot",
+                "- widths: 500px, 900px, 1200px",
+                "- minHeight: 1024px",
+                "- enableJavaScript: false",
+                "- cliEnableJavaScript: true",
+                "- disableShadowDOM: false",
+                "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
+                "- domSnapshot: true",
+                @"- domSnapshot.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
+                "Snapshot found: Snapshot 3",
             };
 
             AssertLogs(expected, logs);
