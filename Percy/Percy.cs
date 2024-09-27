@@ -70,6 +70,7 @@ namespace PercyIO.Selenium
 
         private static string? sessionType = null;
         private static object? eligibleWidths;
+        private static object? cliConfig;
 
         private static string PayloadParser(object? payload = null, bool alreadyJson = false)
         {
@@ -102,6 +103,11 @@ namespace PercyIO.Selenium
         internal static void setEligibleWidths(object widths)
         {
             eligibleWidths = widths;
+        }
+
+        internal static void setCliConfig(object config)
+        {
+            cliConfig = config;
         }
 
         // Added isJson since current JSON parsing doesn’t support nested objects and thats why we using different lib
@@ -170,8 +176,10 @@ namespace PercyIO.Selenium
                 {
                     data.TryGetProperty("type", out JsonElement type);
                     data.TryGetProperty("widths", out JsonElement widths);
+                    data.TryGetProperty("config", out JsonElement config);
                     setEligibleWidths(widths);
                     setSessionType(type.ToString());
+                    setCliConfig(config);
                     return (bool) (_enabled = true);
                 }
             }
@@ -183,127 +191,123 @@ namespace PercyIO.Selenium
             }
         };
 
-    private static dynamic getSerializedDom(WebDriver driver, object cookies, string opts) {
-        string script = $"return PercyDOM.serialize({opts})";
-        var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
-        domSnapshot["cookies"] = cookies;
-        return domSnapshot;
-    }
-
-    private static List<int> GetWidthsForMultiDom(int[] widths)
-    {
-        var fetchedWidthsElement = (JsonElement)eligibleWidths;
-        var allWidths = fetchedWidthsElement.GetProperty("mobile")
-                                        .EnumerateArray()
-                                        .Select(x => x.GetInt32())
-                                        .ToList();
-
-        if (widths.Length != 0)
-        {
-            allWidths.AddRange(widths);
-        }
-        else
-        {
-            allWidths.AddRange(fetchedWidthsElement.GetProperty("config")
-                                               .EnumerateArray()
-                                               .Select(x => x.GetInt32()));
+        private static dynamic getSerializedDom(WebDriver driver, object cookies, string opts) {
+            string script = $"return PercyDOM.serialize({opts})";
+            var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
+            domSnapshot["cookies"] = cookies;
+            return domSnapshot;
         }
 
-        return allWidths.Distinct().ToList();
-    }
-
-    // Method to check if ChromeDriver supports CDP by checking the existence of ExecuteCdpCommand
-    private static bool IsCdpSupported(ChromeDriver chromeDriver)
-    {
-        return chromeDriver.GetType().GetMethod("ExecuteCdpCommand") != null;
-    }
-
-    private static void ChangeWindowDimensionAndWait(WebDriver driver, int width, int height, int resizeCount)
-    {
-        try
+        private static List<int> GetWidthsForMultiDom(int[] widths)
         {
-            // Check if the driver is ChromeDriver and supports CDP
-            if (driver is ChromeDriver chromeDriver && IsCdpSupported(chromeDriver))
+            var fetchedWidthsElement = (JsonElement)eligibleWidths;
+            var allWidths = fetchedWidthsElement.GetProperty("mobile")
+                                            .EnumerateArray()
+                                            .Select(x => x.GetInt32())
+                                            .ToList();
+
+            if (widths.Length != 0)
             {
-                var commandParams = new Dictionary<string, object>
-                {
-                    { "width", width },
-                    { "height", height },
-                    { "deviceScaleFactor", 1 },
-                    { "mobile", false }
-                };
-
-                chromeDriver.ExecuteCdpCommand("Emulation.setDeviceMetricsOverride", commandParams);
+                allWidths.AddRange(widths);
             }
             else
             {
+                allWidths.AddRange(fetchedWidthsElement.GetProperty("config")
+                                                .EnumerateArray()
+                                                .Select(x => x.GetInt32()));
+            }
+
+            return allWidths.Distinct().ToList();
+        }
+
+        // Method to check if ChromeDriver supports CDP by checking the existence of ExecuteCdpCommand
+        private static bool IsCdpSupported(ChromeDriver chromeDriver)
+        {
+            return chromeDriver.GetType().GetMethod("ExecuteCdpCommand") != null;
+        }
+
+        private static void ChangeWindowDimensionAndWait(WebDriver driver, int width, int height, int resizeCount)
+        {
+            try
+            {
+                // Check if the driver is ChromeDriver and supports CDP
+                if (driver is ChromeDriver chromeDriver && IsCdpSupported(chromeDriver))
+                {
+                    var commandParams = new Dictionary<string, object>
+                    {
+                        { "width", width },
+                        { "height", height },
+                        { "deviceScaleFactor", 1 },
+                        { "mobile", false }
+                    };
+
+                    chromeDriver.ExecuteCdpCommand("Emulation.setDeviceMetricsOverride", commandParams);
+                }
+                else
+                {
+                    driver.Manage().Window.Size = new System.Drawing.Size(width, height);
+                }
+            }
+            catch (Exception e)
+            {
+                Log($"Resizing using CDP failed, falling back to driver for width {width}: {e.Message}", "debug");
                 driver.Manage().Window.Size = new System.Drawing.Size(width, height);
             }
-        }
-        catch (Exception e)
-        {
-            Log($"Resizing using CDP failed, falling back to driver for width {width}: {e.Message}", "debug");
-            driver.Manage().Window.Size = new System.Drawing.Size(width, height);
-        }
 
-        // Wait for window resize event using WebDriverWait
-        try
-        {
-            WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(1));
-            wait.Until(d => (long)((IJavaScriptExecutor)d).ExecuteScript("return window.resizeCount") == resizeCount);
-        }
-        catch (WebDriverTimeoutException)
-        {
-            Log($"Timed out waiting for window resize event for width {width}", "debug");
-        }
-    }
-
-    public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
-    {
-        List<int> widths = options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
-        widths = GetWidthsForMultiDom(widths.ToArray());
-        var domSnapshots = new List<Dictionary<string, object>>();
-
-        var windowSize = driver.Manage().Window.Size;
-        int currentWidth = windowSize.Width;
-        int currentHeight = windowSize.Height;
-        int lastWindowWidth = currentWidth;
-        int resizeCount = 0;
-        var opts = JsonSerializer.Serialize(options);
-        int sleepTime = 0;
-        driver.ExecuteScript(@"
-            // if window resizeCount present means event listener was already present
-            if (!window.resizeCount) {
-                let resizeTimeout = false;
-                window.addEventListener('resize', () => {
-                    if (resizeTimeout != false)
-                        clearTimeout(resizeTimeout)
-                    resizeTimeout = setTimeout(() => window.resizeCount++, 100);
-                })
+            // Wait for window resize event using WebDriverWait
+            try
+            {
+                WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(1));
+                wait.Until(d => (long)((IJavaScriptExecutor)d).ExecuteScript("return window.resizeCount") == resizeCount);
             }
-            // always reset count 0
-            window.resizeCount = 0
-        ");
-
-        foreach (int width in widths)
-        {
-            if (lastWindowWidth != width) {
-                resizeCount++;
-                ChangeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
-                lastWindowWidth = width;
+            catch (WebDriverTimeoutException)
+            {
+                Log($"Timed out waiting for window resize event for width {width}", "debug");
             }
-            if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
-                System.Threading.Thread.Sleep(sleepTime * 1000);
-
-            var domSnapshot =  getSerializedDom(driver, cookies, opts);
-            domSnapshot["width"] = width;
-            domSnapshots.Add(domSnapshot);
         }
 
-        ChangeWindowDimensionAndWait(driver, currentWidth, currentHeight, resizeCount + 1);
+        public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
+        {
+            List<int> widths = options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
+            widths = GetWidthsForMultiDom(widths.ToArray());
+            var domSnapshots = new List<Dictionary<string, object>>();
 
-        return domSnapshots;
-    }
+            var windowSize = driver.Manage().Window.Size;
+            int currentWidth = windowSize.Width;
+            int currentHeight = windowSize.Height;
+            int lastWindowWidth = currentWidth;
+            int resizeCount = 0;
+            var opts = JsonSerializer.Serialize(options);
+            int sleepTime = 0;
+            driver.ExecuteScript("PercyDOM.waitForResize()");
+
+            foreach (int width in widths)
+            {
+                if (lastWindowWidth != width) {
+                    resizeCount++;
+                    ChangeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
+                    lastWindowWidth = width;
+                }
+                if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
+                    System.Threading.Thread.Sleep(sleepTime * 1000);
+
+                var domSnapshot =  getSerializedDom(driver, cookies, opts);
+                domSnapshot["width"] = width;
+                domSnapshots.Add(domSnapshot);
+            }
+
+            ChangeWindowDimensionAndWait(driver, currentWidth, currentHeight, resizeCount + 1);
+
+            return domSnapshots;
+        }
+
+        private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options) 
+        {
+            JsonElement config = (JsonElement) cliConfig;
+            return (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"] ||
+                    config.GetProperty("snapshot").GetProperty("responsiveSnapshotCapture").GetBoolean());
+        }
+
         public class Options : Dictionary<string, object> {}
 
         public static JObject? Snapshot(
@@ -323,7 +327,7 @@ namespace PercyIO.Selenium
                 string opts = JsonSerializer.Serialize(options);
                 dynamic domSnapshot = null;
 
-                if (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"]) {
+                if (isResponsiveSnapshotCapture(options)) {
                     domSnapshot = CaptureResponsiveDom(driver, cookies, options);
                 } else {
                     domSnapshot = driver.ExecuteScript($"return PercyDOM.serialize({opts})");

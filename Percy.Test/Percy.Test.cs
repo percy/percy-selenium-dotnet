@@ -49,6 +49,7 @@ namespace PercyIO.Selenium.Tests
             driver.Navigate().GoToUrl($"{Percy.CLI_API}/test/snapshot");
 
             Percy.ResetInternalCaches();
+            Request("/test/api/widths", new { config = new List<int> {375, 1280}, mobile = new List<int> {} });
             Request("/test/api/reset");
         }
 
@@ -76,7 +77,7 @@ namespace PercyIO.Selenium.Tests
             return JsonSerializer.Deserialize<JsonElement>(contentTask.Result);
         }
 
-        public static void AssertLogs(List<string> expected, List<string> logs) {
+        private static void AssertLogs(List<string> expected, List<string> logs) {
             foreach (int i in expected.Select((v, i) => i)) {
                 if (Regex.IsMatch(expected[i], @".*userAgent.*")) {
                     Assert.Matches(expected[i], logs[i]);
@@ -241,11 +242,6 @@ namespace PercyIO.Selenium.Tests
                     responsiveSnapshotCapture = true
             });
 
-            Percy.Snapshot(driver, "Snapshot 2", new {
-                responsiveSnapshotCapture = true,
-                widths = new List<int> {500, 900, 1200}
-            });
-
             JsonElement data = Request("/test/logs");
             List<string> logs = new List<string>();
 
@@ -256,7 +252,9 @@ namespace PercyIO.Selenium.Tests
             }
             List<string> expected = new List<string> {
                 // This happens because of firefox limitation to resize below 450px.
-                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 390",
+                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 375",
+                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 800",
+                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 1366",
                 "---------",
                 "Received snapshot: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
@@ -272,6 +270,28 @@ namespace PercyIO.Selenium.Tests
                 "- domSnapshot: true, true, true",
                 @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",
+            };
+
+            AssertLogs(expected, logs);
+        }
+
+        [Fact]
+        public void PostsSnapshotWithResponsiveSnapshotCapturWithCLIOptions()
+        {
+            Request("/test/api/widths", new { responsive = true, config = new List<int> {375, 800} });
+            Percy.Snapshot(driver, "Snapshot 2", new {
+                widths = new List<int> {500, 900, 1200}
+            });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            List<string> expected = new List<string> {
                 "---------",
                 "Received snapshot: Snapshot 2",
                 "- url: http://localhost:5338/test/snapshot",
@@ -284,14 +304,12 @@ namespace PercyIO.Selenium.Tests
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true, true, true, true",
+                "- domSnapshot: true, true, true",
                 @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 2",
             };
 
             AssertLogs(expected, logs);
-            // reset to original value
-            Request("/test/api/widths", new { config = new List<int> {375, 1280}, mobile = new List<int> {} });
         }
 
         [Fact]
