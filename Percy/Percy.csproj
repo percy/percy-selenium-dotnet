@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0</TargetFrameworks>
+    <TargetFrameworks>net6.0</TargetFrameworks>
     <AssemblyName>Percy</AssemblyName>
     <LangVersion>8.0</LangVersion>
     <Nullable>enable</Nullable>
@@ -11,7 +11,7 @@
     <PackageId>PercyIO.Selenium</PackageId>
     <Description>Percy for Selenium WebDriver API .NET Bindings</Description>
     <PackageTags>selenium;percy;visual;testing</PackageTags>
-    <Version>2.0.4</Version>
+    <Version>2.0.5</Version>
     <Company>Perceptual Inc</Company>
     <Copyright>Copyright Perceptual Inc</Copyright>
     <Authors>percy-admin</Authors>
@@ -31,7 +31,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
     <PackageReference Include="Selenium.WebDriver" Version="4.5.1" />
-    <PackageReference Include="System.Text.Json" Version="7.0.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.4" />
   </ItemGroup>
 
   <PropertyGroup>

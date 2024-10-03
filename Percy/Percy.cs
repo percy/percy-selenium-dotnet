@@ -341,7 +341,7 @@ namespace PercyIO.Selenium
                     { "clientInfo", CLIENT_INFO },
                     { "environmentInfo", ENVIRONMENT_INFO },
                     { "domSnapshot", domSnapshot },
-                    { "url", driver.Url },
+                    { "url", driver.ExecuteScript("return document.URL") },
                     { "name", name }
                 };
 
