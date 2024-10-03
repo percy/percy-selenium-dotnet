@@ -8,10 +8,13 @@ using System.Reflection;
 using System.Diagnostics;
 using System.ComponentModel;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Remote;
+using OpenQA.Selenium.Chrome;
+using OpenQA.Selenium.Support.UI;
 using Newtonsoft.Json.Linq;
 
 namespace PercyIO.Selenium
@@ -22,6 +25,9 @@ namespace PercyIO.Selenium
             Environment.GetEnvironmentVariable("PERCY_LOGLEVEL") == "debug";
         public static readonly string CLI_API =
             Environment.GetEnvironmentVariable("PERCY_CLI_API") ?? "http://localhost:5338";
+        
+        public static readonly string RESONSIVE_CAPTURE_SLEEP_TIME =
+             Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
         public static readonly string CLIENT_INFO =
             typeof(Percy).Assembly.GetCustomAttribute<ClientInfoAttribute>().ClientInfo;
         public static readonly string ENVIRONMENT_INFO = Regex.Replace(
@@ -33,15 +39,39 @@ namespace PercyIO.Selenium
         public static readonly string considerElementKey = "consider_region_selenium_elements";
         public static readonly string considerElementAltKey = "considerRegionSeleniumElements";
 
-        private static void Log<T>(T message)
+        private static void Log<T>(T message, string lvl = "info")
         {
             string label = DEBUG ? "percy:dotnet" : "percy";
-            Console.WriteLine($"[\u001b[35m{label}\u001b[39m] {message}");
+            string labeledMessage = $"[\u001b[35m{label}\u001b[39m] {message}";
+            // Send log message to Percy CLI
+            try
+            {
+                Dictionary<string, object> logPayload = new Dictionary<string, object> {
+                    { "message", labeledMessage },
+                    { "level", lvl }
+                };
+                Request("/percy/log", logPayload);
+            }
+            catch (Exception e)
+            {
+                if (DEBUG)
+                    Console.WriteLine($"Sending log to CLI failed: {e.Message}");
+            }
+            finally
+            {
+                // Only log to console if lvl is not 'debug' or DEBUG is true
+                if (lvl != "debug" || DEBUG)
+                {
+                    Console.WriteLine(labeledMessage);
+                }
+            }
         }
 
         private static HttpClient? _http;
 
         private static string? sessionType = null;
+        private static object? eligibleWidths;
+        private static object? cliConfig;
 
         private static string PayloadParser(object? payload = null, bool alreadyJson = false)
         {
@@ -69,6 +99,16 @@ namespace PercyIO.Selenium
         internal static void setSessionType(String? type)
         {
             sessionType = type;
+        }
+
+        internal static void setEligibleWidths(object widths)
+        {
+            eligibleWidths = widths;
+        }
+
+        internal static void setCliConfig(object config)
+        {
+            cliConfig = config;
         }
 
         // Added isJson since current JSON parsing doesn’t support nested objects and thats why we using different lib
@@ -136,17 +176,142 @@ namespace PercyIO.Selenium
                 else
                 {
                     data.TryGetProperty("type", out JsonElement type);
+                    data.TryGetProperty("widths", out JsonElement widths);
+                    data.TryGetProperty("config", out JsonElement config);
+                    setEligibleWidths(widths);
                     setSessionType(type.ToString());
+                    setCliConfig(config);
                     return (bool) (_enabled = true);
                 }
             }
             catch (Exception error)
             {
                 Log("Percy is not running, disabling snapshots");
-                if (DEBUG) Log<Exception>(error);
+                Log<Exception>(error, "debug");
                 return (bool) (_enabled = false);
             }
         };
+
+        private static dynamic getSerializedDom(WebDriver driver, object cookies, Dictionary<string, object>? options) {
+            var opts = JsonSerializer.Serialize(options);
+            string script = $"return PercyDOM.serialize({opts})";
+            var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
+            domSnapshot["cookies"] = cookies;
+            return domSnapshot;
+        }
+
+        private static List<int> GetWidthsForMultiDom(int[] widths)
+        {
+            var fetchedWidthsElement = (JsonElement)eligibleWidths;
+            var allWidths = fetchedWidthsElement.GetProperty("mobile")
+                                            .EnumerateArray()
+                                            .Select(x => x.GetInt32())
+                                            .ToList();
+
+            if (widths.Length != 0)
+            {
+                allWidths.AddRange(widths);
+            }
+            else
+            {
+                allWidths.AddRange(fetchedWidthsElement.GetProperty("config")
+                                                .EnumerateArray()
+                                                .Select(x => x.GetInt32()));
+            }
+
+            return allWidths.Distinct().ToList();
+        }
+
+        // Method to check if ChromeDriver supports CDP by checking the existence of ExecuteCdpCommand
+        private static bool IsCdpSupported(ChromeDriver chromeDriver)
+        {
+            return chromeDriver.GetType().GetMethod("ExecuteCdpCommand") != null;
+        }
+
+        private static void ChangeWindowDimensionAndWait(WebDriver driver, int width, int height, int resizeCount)
+        {
+            try
+            {
+                // Check if the driver is ChromeDriver and supports CDP
+                if (driver is ChromeDriver chromeDriver && IsCdpSupported(chromeDriver))
+                {
+                    var commandParams = new Dictionary<string, object>
+                    {
+                        { "width", width },
+                        { "height", height },
+                        { "deviceScaleFactor", 1 },
+                        { "mobile", false }
+                    };
+
+                    chromeDriver.ExecuteCdpCommand("Emulation.setDeviceMetricsOverride", commandParams);
+                }
+                else
+                {
+                    driver.Manage().Window.Size = new System.Drawing.Size(width, height);
+                }
+            }
+            catch (Exception e)
+            {
+                Log($"Resizing using CDP failed, falling back to driver for width {width}: {e.Message}", "debug");
+                driver.Manage().Window.Size = new System.Drawing.Size(width, height);
+            }
+
+            // Wait for window resize event using WebDriverWait
+            try
+            {
+                WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(1));
+                wait.Until(d => (long)((IJavaScriptExecutor)d).ExecuteScript("return window.resizeCount") == resizeCount);
+            }
+            catch (WebDriverTimeoutException)
+            {
+                Log($"Timed out waiting for window resize event for width {width}", "debug");
+            }
+        }
+
+        public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
+        {
+            List<int> widths = options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
+            widths = GetWidthsForMultiDom(widths.ToArray());
+            var domSnapshots = new List<Dictionary<string, object>>();
+
+            var windowSize = driver.Manage().Window.Size;
+            int currentWidth = windowSize.Width;
+            int currentHeight = windowSize.Height;
+            int lastWindowWidth = currentWidth;
+            int resizeCount = 0;
+            int sleepTime = 0;
+            driver.ExecuteScript("PercyDOM.waitForResize()");
+
+            foreach (int width in widths)
+            {
+                if (lastWindowWidth != width) {
+                    resizeCount++;
+                    ChangeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
+                    lastWindowWidth = width;
+                }
+                if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
+                    Thread.Sleep(sleepTime * 1000);
+
+                var domSnapshot =  getSerializedDom(driver, cookies, options);
+                domSnapshot["width"] = width;
+                domSnapshots.Add(domSnapshot);
+            }
+
+            ChangeWindowDimensionAndWait(driver, currentWidth, currentHeight, resizeCount + 1);
+
+            return domSnapshots;
+        }
+
+        private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options) 
+        {
+            JsonElement config = (JsonElement) cliConfig;
+            if (config.GetProperty("percy").TryGetProperty("deferUploads", out JsonElement deferUploadsProperty)) {
+                if (deferUploadsProperty.GetBoolean()) { return false; }
+            }
+
+            return (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"] ||
+                    config.GetProperty("snapshot").GetProperty("responsiveSnapshotCapture").GetBoolean());
+        }
 
         public class Options : Dictionary<string, object> {}
 
@@ -163,8 +328,15 @@ namespace PercyIO.Selenium
                 if ((bool) driver.ExecuteScript("return !!window.PercyDOM") == false)
                     driver.ExecuteScript(GetPercyDOM());
 
+                var cookies = driver.Manage().Cookies.AllCookies;
                 string opts = JsonSerializer.Serialize(options);
-                var domSnapshot = driver.ExecuteScript($"return PercyDOM.serialize({opts})");
+                dynamic domSnapshot = null;
+
+                if (isResponsiveSnapshotCapture(options)) {
+                    domSnapshot = CaptureResponsiveDom(driver, cookies, options);
+                } else {
+                    domSnapshot = getSerializedDom(driver, cookies, options);
+                }
 
                 Options snapshotOptions = new Options {
                     { "clientInfo", CLIENT_INFO },
