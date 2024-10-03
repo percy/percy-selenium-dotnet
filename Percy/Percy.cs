@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Diagnostics;
 using System.ComponentModel;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using OpenQA.Selenium;
@@ -191,7 +192,8 @@ namespace PercyIO.Selenium
             }
         };
 
-        private static dynamic getSerializedDom(WebDriver driver, object cookies, string opts) {
+        private static dynamic getSerializedDom(WebDriver driver, object cookies, Dictionary<string, object>? options) {
+            var opts = JsonSerializer.Serialize(options);
             string script = $"return PercyDOM.serialize({opts})";
             var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
             domSnapshot["cookies"] = cookies;
@@ -277,7 +279,6 @@ namespace PercyIO.Selenium
             int currentHeight = windowSize.Height;
             int lastWindowWidth = currentWidth;
             int resizeCount = 0;
-            var opts = JsonSerializer.Serialize(options);
             int sleepTime = 0;
             driver.ExecuteScript("PercyDOM.waitForResize()");
 
@@ -289,9 +290,9 @@ namespace PercyIO.Selenium
                     lastWindowWidth = width;
                 }
                 if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
-                    System.Threading.Thread.Sleep(sleepTime * 1000);
+                    Thread.Sleep(sleepTime * 1000);
 
-                var domSnapshot =  getSerializedDom(driver, cookies, opts);
+                var domSnapshot =  getSerializedDom(driver, cookies, options);
                 domSnapshot["width"] = width;
                 domSnapshots.Add(domSnapshot);
             }
@@ -334,7 +335,7 @@ namespace PercyIO.Selenium
                 if (isResponsiveSnapshotCapture(options)) {
                     domSnapshot = CaptureResponsiveDom(driver, cookies, options);
                 } else {
-                    domSnapshot = driver.ExecuteScript($"return PercyDOM.serialize({opts})");
+                    domSnapshot = getSerializedDom(driver, cookies, options);
                 }
 
                 Options snapshotOptions = new Options {
