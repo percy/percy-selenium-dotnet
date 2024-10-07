@@ -270,7 +270,7 @@ namespace PercyIO.Selenium
 
         public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
         {
-            List<int> widths = options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
+            List<int> widths = options != null && options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
             widths = GetWidthsForMultiDom(widths.ToArray());
             var domSnapshots = new List<Dictionary<string, object>>();
 

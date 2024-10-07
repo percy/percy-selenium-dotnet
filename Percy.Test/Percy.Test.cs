@@ -278,7 +278,8 @@ namespace PercyIO.Selenium.Tests
         [Fact]
         public void PostsSnapshotWithResponsiveSnapshotCapturWithCLIOptions()
         {
-            Request("/test/api/config", new { responsive = true, config = new List<int> {375, 800} });
+            Request("/test/api/config", new { responsive = true, config = new List<int> {800, 1200} });
+            Percy.Snapshot(driver, "Snapshot 1");
             Percy.Snapshot(driver, "Snapshot 2", new {
                 widths = new List<int> {500, 900, 1200}
             });
@@ -292,6 +293,21 @@ namespace PercyIO.Selenium.Tests
                 if (msg != null) logs.Add(msg);
             }
             List<string> expected = new List<string> {
+                "---------",
+                "Received snapshot: Snapshot 1",
+                "- url: http://localhost:5338/test/snapshot",
+                "- widths: 800px, 1200px",
+                "- minHeight: 1024px",
+                "- enableJavaScript: false",
+                "- cliEnableJavaScript: true",
+                "- disableShadowDOM: false",
+                "- discovery.allowedHostnames: localhost",
+                "- discovery.captureMockedServiceWorker: false",
+                $"- clientInfo: {Percy.CLIENT_INFO}",
+                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
+                "- domSnapshot: true, true",
+                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
+                "Snapshot found: Snapshot 1",                
                 "---------",
                 "Received snapshot: Snapshot 2",
                 "- url: http://localhost:5338/test/snapshot",
