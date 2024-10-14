@@ -10,11 +10,11 @@
       },
       "Selenium.WebDriver": {
         "type": "Direct",
-        "requested": "[4.5.1, )",
-        "resolved": "4.5.1",
-        "contentHash": "ztu9Qv2n5/NkqPs0MQ3nojMJuW2PVHrAKDukmT77HbYAGhZI370Hp0EJNqyucJuud937Lr/qvXsoOtLZ18VFnw==",
+        "requested": "[4.25.0, )",
+        "resolved": "4.25.0",
+        "contentHash": "0g/9I5ennfL2ZaQoXsfEPj+GcqrKlcVr1yxh3C/Eed/acNZrC38OaXLorsuHdAHiGn+QySV3iz8/hFcOXvVcoA==",
         "dependencies": {
-          "Newtonsoft.Json": "13.0.1"
+          "System.Text.Json": "8.0.4"
         }
       },
       "System.Text.Json": {
@@ -26,11 +26,6 @@
           "System.Runtime.CompilerServices.Unsafe": "6.0.0",
           "System.Text.Encodings.Web": "8.0.0"
         }
-      },
-      "Newtonsoft.Json": {
-        "type": "Transitive",
-        "resolved": "13.0.1",
-        "contentHash": "ppPFpBcvxdsfUonNcvITKqLl3bqxWbDCZIzDWHzjpdAHRFfZe0Dw9HmA0+za13IdyrgJwpkDTDA9fHaxOrt20A=="
       },
       "System.Runtime.CompilerServices.Unsafe": {
         "type": "Transitive",
