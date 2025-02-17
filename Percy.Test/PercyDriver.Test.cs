@@ -8,6 +8,7 @@ using RichardSzalay.MockHttp;
 using System.Net.Http;
 using System;
 using Newtonsoft.Json.Linq;
+using System.Reflection;
 
 namespace PercyIO.Selenium.Tests
 {
@@ -15,19 +16,21 @@ namespace PercyIO.Selenium.Tests
   {
     private readonly Mock<IPercySeleniumDriver> remoteDriver;
     private Mock<PercyDriver> percyDriverMock;
-    private readonly Mock<ICapabilities> capabilities;
+    private readonly Dictionary<string, object> capabilities; // Changed from Mock to Dictionary
 
     public PercyDriverTest() {
       remoteDriver = new Mock<IPercySeleniumDriver>();
-      capabilities = new Mock<ICapabilities>();
-      capabilities.Setup(x => x.GetCapability("platformName")).Returns("win");
-      capabilities.Setup(x => x.GetCapability("osVersion")).Returns("111.0");
-      capabilities.Setup(x => x.GetCapability("browserName")).Returns("firefox");
-      capabilities.Setup(x => x.ToString()).Returns("{\"caps\": \"Dummy_capability\"}");
+      capabilities = new Dictionary<string, object>
+      {
+          { "platformName", "win" },
+          { "osVersion", "111.0" },
+          { "browserName", "firefox" }
+      };
+      
       string url = "http://hub-cloud.browserstack.com/wd/hub/";
       remoteDriver.Setup(x => x.sessionId()).Returns("123");
       remoteDriver.Setup(x => x.GetHost()).Returns(url);
-      remoteDriver.Setup(x => x.GetCapabilities()).Returns(capabilities.Object);
+      remoteDriver.Setup(x => x.GetCapabilities()).Returns(capabilities); // Direct setup for GetCapabilities
       percyDriverMock = new Mock<PercyDriver>(remoteDriver.Object);
     }
 
@@ -42,10 +45,14 @@ namespace PercyIO.Selenium.Tests
       {
         { "sessionId", "123" },
         { "commandExecutorUrl", "http://hub-cloud.browserstack.com/wd/hub" },
-        { "capabilities", capabilities.Object }
+        { "capabilities", capabilities }
       };
       // Testing Payload Function
-      Assert.Equal(expectedResponse, percyDriverMock.Object.getPayload());
+      var actual = percyDriverMock.Object.getPayload();
+      Assert.Equal(
+          JsonConvert.SerializeObject(expectedResponse),
+          JsonConvert.SerializeObject(actual)
+      );
 
       var mockHttp = new MockHttpMessageHandler();
       var obj = new
@@ -74,7 +81,7 @@ namespace PercyIO.Selenium.Tests
       {
         { "sessionId", "123" },
         { "commandExecutorUrl", "http://hub-cloud.browserstack.com/wd/hub" },
-        { "capabilities", capabilities.Object }
+        { "capabilities", capabilities }
       };
       // Testing Payload Function
       Assert.Equal(expectedResponse, percyDriverMock.Object.getPayload());
