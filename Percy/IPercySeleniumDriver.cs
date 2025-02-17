@@ -6,7 +6,7 @@ namespace PercyIO.Selenium
 {
   internal interface IPercySeleniumDriver
   {
-    ICapabilities GetCapabilities();
+    System.Collections.Generic.Dictionary<string, object> GetCapabilities();
     System.Collections.Generic.IDictionary<string, object> GetSessionDetails();
     String sessionId();
     String GetElementIdFromElement(IWebElement element);

@@ -38,15 +38,23 @@ namespace PercyIO.Selenium
     return this._remoteDriver;
   }
 
-  public ICapabilities GetCapabilities()
+  public Dictionary<string, object> GetCapabilities()
   {
-    // Implement Cache
     var key = "caps_" + sessionId();
     if (PercyDriver.cache.Get(key) == null) {
       object capabilities = this._remoteDriver.Capabilities;
-      PercyDriver.cache.Store(key, capabilities);
+      var capabilitiesType = capabilities.GetType();
+      var dictionaryField = capabilitiesType.GetField("capabilities", BindingFlags.NonPublic | BindingFlags.Instance);
+      
+      if (dictionaryField != null){
+        var capabilitiesDictionary = dictionaryField.GetValue(capabilities) as Dictionary<string, object>;
+        if (capabilitiesDictionary != null){
+          PercyDriver.cache.Store(key, capabilitiesDictionary);
+        }
+      }
     }
-    return (ICapabilities)PercyDriver.cache.Get(key);
+    
+    return PercyDriver.cache.Get(key) as Dictionary<string, object>;
   }
 
   public IDictionary<string, object> GetSessionDetails()

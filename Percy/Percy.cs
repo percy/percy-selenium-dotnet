@@ -391,8 +391,9 @@ namespace PercyIO.Selenium
                 {
                     if(o.Key == "capabilities")
                     {
-                        var dictionary = JObject.Parse(o.Value.ToString());
-                        screenshotOptions.Add(o.Key, dictionary);
+                        var capabilitiesString = JsonSerializer.Serialize(o.Value);
+                        var capabilitiesJson = JObject.Parse(capabilitiesString);
+                        screenshotOptions.Add(o.Key, capabilitiesJson);
                     } else
                     {
                         screenshotOptions.Add(o.Key, o.Value);
