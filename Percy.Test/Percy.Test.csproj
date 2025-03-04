@@ -12,9 +12,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" Version="17.11.1"
+    <PackageReference Include="Microsoft.TestPlatform.ObjectModel" Version="17.13.0"
       Condition="$(TargetFramework.StartsWith('net4')) AND '$(OS)' == 'Unix'" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
     <PackageReference Include="Selenium.WebDriver" Version="4.27" />
     <PackageReference Include="WebDriverManager" Version="2.16.3" />
     <PackageReference Include="Moq" Version="4.20.72" />
