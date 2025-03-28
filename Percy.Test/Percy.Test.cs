@@ -394,4 +394,73 @@ namespace PercyIO.Selenium.Tests
             Percy.Enabled = oldEnabledFn;
         }
     }
+    public class RegionTests
+    {
+        [Fact]
+        public void CreateRegion_ShouldAssignPropertiesCorrectly()
+        {
+            // Arrange
+            var customPadding = new Percy.Region.RegionPadding
+            {
+                Top = 10,
+                Left = 5,
+                Right = 5,
+                Bottom = 10
+            };
+
+            var boundingBox = new Percy.Region.RegionBoundingBox
+            {
+                Top = 0,
+                Left = 0,
+                Width = 100,
+                Height = 100
+            };
+
+            var diffSensitivity = 5;
+            var imageIgnoreThreshold = 0.8;
+            var carouselsEnabled = true;
+            var algorithm = "intelliignore";
+            var diffIgnoreThreshold = 0.5;
+
+            // Act
+            var region = Percy.CreateRegion(
+                padding: customPadding,
+                boundingBox: boundingBox,
+                algorithm: algorithm,
+                diffSensitivity: diffSensitivity,
+                imageIgnoreThreshold: imageIgnoreThreshold,
+                carouselsEnabled: carouselsEnabled,
+                diffIgnoreThreshold: diffIgnoreThreshold
+            );
+
+            // Assert
+            // Validate Padding
+            Assert.NotNull(region.Padding);
+            Assert.Equal(customPadding.Top, region.Padding.Top);
+            Assert.Equal(customPadding.Left, region.Padding.Left);
+            Assert.Equal(customPadding.Right, region.Padding.Right);
+            Assert.Equal(customPadding.Bottom, region.Padding.Bottom);
+
+            // Validate ElementSelector
+            Assert.NotNull(region.ElementSelector);
+            Assert.NotNull(region.ElementSelector.BoundingBox);
+            Assert.Equal(boundingBox.Top, region.ElementSelector.BoundingBox.Top);
+            Assert.Equal(boundingBox.Left, region.ElementSelector.BoundingBox.Left);
+            Assert.Equal(boundingBox.Width, region.ElementSelector.BoundingBox.Width);
+            Assert.Equal(boundingBox.Height, region.ElementSelector.BoundingBox.Height);
+
+            // Validate Algorithm
+            Assert.Equal(algorithm, region.Algorithm);
+
+            // Validate Configuration
+            Assert.NotNull(region.Configuration);
+            Assert.Equal(diffSensitivity, region.Configuration.DiffSensitivity);
+            Assert.Equal(imageIgnoreThreshold, region.Configuration.ImageIgnoreThreshold);
+            Assert.Equal(carouselsEnabled, region.Configuration.CarouselsEnabled);
+
+            // Validate Assertion
+            Assert.NotNull(region.Assertion);
+            Assert.Equal(diffIgnoreThreshold, region.Assertion.DiffIgnoreThreshold);
+        }
+    }
 }
