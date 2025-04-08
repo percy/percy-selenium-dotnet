@@ -402,26 +402,26 @@ namespace PercyIO.Selenium.Tests
             // Arrange
             var customPadding = new Percy.Region.RegionPadding
             {
-                Top = 10,
-                Left = 5,
-                Right = 5,
-                Bottom = 10
+                top = 10,
+                left = 5,
+                right = 5,
+                bottom = 10
             };
-
+            
             var boundingBox = new Percy.Region.RegionBoundingBox
             {
-                Top = 0,
-                Left = 0,
-                Width = 100,
-                Height = 100
+                top = 0,
+                left = 0,
+                width = 100,
+                height = 100
             };
-
+            
             var diffSensitivity = 5;
             var imageIgnoreThreshold = 0.8;
             var carouselsEnabled = true;
             var algorithm = "intelliignore";
             var diffIgnoreThreshold = 0.5;
-
+            
             // Act
             var region = Percy.CreateRegion(
                 padding: customPadding,
@@ -435,32 +435,32 @@ namespace PercyIO.Selenium.Tests
 
             // Assert
             // Validate Padding
-            Assert.NotNull(region.Padding);
-            Assert.Equal(customPadding.Top, region.Padding.Top);
-            Assert.Equal(customPadding.Left, region.Padding.Left);
-            Assert.Equal(customPadding.Right, region.Padding.Right);
-            Assert.Equal(customPadding.Bottom, region.Padding.Bottom);
-
+            Assert.NotNull(region.padding);
+            Assert.Equal(customPadding.top, region.padding.top);
+            Assert.Equal(customPadding.left, region.padding.left);
+            Assert.Equal(customPadding.right, region.padding.right);
+            Assert.Equal(customPadding.bottom, region.padding.bottom);
+            
             // Validate ElementSelector
-            Assert.NotNull(region.ElementSelector);
-            Assert.NotNull(region.ElementSelector.BoundingBox);
-            Assert.Equal(boundingBox.Top, region.ElementSelector.BoundingBox.Top);
-            Assert.Equal(boundingBox.Left, region.ElementSelector.BoundingBox.Left);
-            Assert.Equal(boundingBox.Width, region.ElementSelector.BoundingBox.Width);
-            Assert.Equal(boundingBox.Height, region.ElementSelector.BoundingBox.Height);
-
+            Assert.NotNull(region.elementSelector);
+            Assert.NotNull(region.elementSelector.boundingBox);
+            Assert.Equal(boundingBox.top, region.elementSelector.boundingBox.top);
+            Assert.Equal(boundingBox.left, region.elementSelector.boundingBox.left);
+            Assert.Equal(boundingBox.width, region.elementSelector.boundingBox.width);
+            Assert.Equal(boundingBox.height, region.elementSelector.boundingBox.height);
+            
             // Validate Algorithm
-            Assert.Equal(algorithm, region.Algorithm);
-
+            Assert.Equal(algorithm, region.algorithm);
+            
             // Validate Configuration
-            Assert.NotNull(region.Configuration);
-            Assert.Equal(diffSensitivity, region.Configuration.DiffSensitivity);
-            Assert.Equal(imageIgnoreThreshold, region.Configuration.ImageIgnoreThreshold);
-            Assert.Equal(carouselsEnabled, region.Configuration.CarouselsEnabled);
-
+            Assert.NotNull(region.configuration);
+            Assert.Equal(diffSensitivity, region.configuration.diffSensitivity);
+            Assert.Equal(imageIgnoreThreshold, region.configuration.imageIgnoreThreshold);
+            Assert.Equal(carouselsEnabled, region.configuration.carouselsEnabled);
+            
             // Validate Assertion
-            Assert.NotNull(region.Assertion);
-            Assert.Equal(diffIgnoreThreshold, region.Assertion.DiffIgnoreThreshold);
+            Assert.NotNull(region.assertion);
+            Assert.Equal(diffIgnoreThreshold, region.assertion.diffIgnoreThreshold);
         }
     }
 }

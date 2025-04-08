@@ -193,56 +193,57 @@ namespace PercyIO.Selenium
         };
         public class Region 
         { 
-            public RegionElementSelector ElementSelector { get; set; } 
-            public RegionPadding Padding { get; set; } 
-            public string Algorithm { get; set; } 
-            public RegionConfiguration Configuration { get; set; } 
-            public RegionAssertion Assertion { get; set; } 
+            public RegionElementSelector elementSelector { get; set; } 
+            public RegionPadding padding { get; set; } 
+            public string algorithm { get; set; } 
+            public RegionConfiguration configuration { get; set; } 
+            public RegionAssertion assertion { get; set; } 
 
             // Rename the nested class to RegionElementSelector or another unique name
             public class RegionElementSelector 
             { 
-                public RegionBoundingBox BoundingBox { get; set; } 
-                public string ElementXpath { get; set; } 
-                public string ElementCSS { get; set; } 
+                public RegionBoundingBox boundingBox { get; set; } 
+                public string elementXpath { get; set; } 
+                public string elementCSS { get; set; } 
             } 
 
             public class RegionBoundingBox 
             { 
-                public int Top { get; set; } 
-                public int Left { get; set; } 
-                public int Width { get; set; } 
-                public int Height { get; set; } 
+                public int top { get; set; } 
+                public int left { get; set; } 
+                public int width { get; set; } 
+                public int height { get; set; } 
             } 
 
             public class RegionPadding 
             { 
-                public int Top { get; set; } 
-                public int Left { get; set; } 
-                public int Right { get; set; } 
-                public int Bottom { get; set; } 
+                public int top { get; set; } 
+                public int left { get; set; } 
+                public int right { get; set; } 
+                public int bottom { get; set; } 
             } 
 
             public class RegionConfiguration 
             { 
-                public int? DiffSensitivity { get; set; } 
-                public double? ImageIgnoreThreshold { get; set; } 
-                public bool? CarouselsEnabled { get; set; } 
-                public bool? BannersEnabled { get; set; } 
-                public bool? AdsEnabled { get; set; } 
+                public int? diffSensitivity { get; set; } 
+                public double? imageIgnoreThreshold { get; set; } 
+                public bool? carouselsEnabled { get; set; } 
+                public bool? bannersEnabled { get; set; } 
+                public bool? adsEnabled { get; set; } 
             } 
 
             public class RegionAssertion 
             { 
-                public double? DiffIgnoreThreshold { get; set; } 
+                public double? diffIgnoreThreshold { get; set; } 
             }
         }
 
+
         public static Region CreateRegion(
-            Region.RegionBoundingBox boundingBox = null,
-            string elementXpath = null,
-            string elementCSS = null,
-            Region.RegionPadding padding = null,
+            Region.RegionBoundingBox? boundingBox = null,
+            string? elementXpath = null,
+            string? elementCSS = null,
+            Region.RegionPadding? padding = null,
             string algorithm = "ignore",
             int? diffSensitivity = null,
             double? imageIgnoreThreshold = null,
@@ -253,45 +254,45 @@ namespace PercyIO.Selenium
         {
             var elementSelector = new Region.RegionElementSelector
             {
-                BoundingBox = boundingBox,
-                ElementXpath = elementXpath,
-                ElementCSS = elementCSS
+                boundingBox = boundingBox,
+                elementXpath = elementXpath,
+                elementCSS = elementCSS
             };
 
             var region = new Region
             {
-                Algorithm = algorithm,
-                ElementSelector = elementSelector,
-                Padding = padding
+                algorithm = algorithm,
+                elementSelector = elementSelector,
+                padding = padding
             };
 
             if (new[] { "standard", "intelliignore" }.Contains(algorithm))
             {
                 var configuration = new Region.RegionConfiguration
                 {
-                    DiffSensitivity = diffSensitivity,
-                    ImageIgnoreThreshold = imageIgnoreThreshold,
-                    CarouselsEnabled = carouselsEnabled,
-                    BannersEnabled = bannersEnabled,
-                    AdsEnabled = adsEnabled
+                    diffSensitivity = diffSensitivity,
+                    imageIgnoreThreshold = imageIgnoreThreshold,
+                    carouselsEnabled = carouselsEnabled,
+                    bannersEnabled = bannersEnabled,
+                    adsEnabled = adsEnabled
                 };
 
                 // Check if any configuration value is set and add it to the region
-                if (configuration.DiffSensitivity.HasValue || 
-                    configuration.ImageIgnoreThreshold.HasValue || 
-                    configuration.CarouselsEnabled.HasValue || 
-                    configuration.BannersEnabled.HasValue || 
-                    configuration.AdsEnabled.HasValue)
+                if (configuration.diffSensitivity.HasValue || 
+                    configuration.imageIgnoreThreshold.HasValue || 
+                    configuration.carouselsEnabled.HasValue || 
+                    configuration.bannersEnabled.HasValue || 
+                    configuration.adsEnabled.HasValue)
                 {
-                    region.Configuration = configuration;
+                    region.configuration = configuration;
                 }
             }
 
             if (diffIgnoreThreshold.HasValue)
             {
-                region.Assertion = new Region.RegionAssertion
+                region.assertion = new Region.RegionAssertion
                 {
-                    DiffIgnoreThreshold = diffIgnoreThreshold
+                    diffIgnoreThreshold = diffIgnoreThreshold
                 };
             }
 
