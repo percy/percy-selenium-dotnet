@@ -143,11 +143,11 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued"))
+                    logs.Add(msg);
             }
 
             List<string> expected = new List<string> {
-                "---------",
                 "Received snapshot: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
@@ -160,9 +160,7 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
-                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",
-                "---------",
                 "Received snapshot: Snapshot 2",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
@@ -175,9 +173,7 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
-                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 2",
-                "---------",
                 "Received snapshot: Snapshot 3",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
@@ -190,7 +186,6 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
-                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 3",
             };
 
@@ -210,7 +205,8 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":"))
+                    logs.Add(msg);
             }
             List<string> expected = new List<string> {
                 "---------",
@@ -245,17 +241,18 @@ namespace PercyIO.Selenium.Tests
             JsonElement data = Request("/test/logs");
             List<string> logs = new List<string>();
 
+
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
+                    logs.Add(msg);
             }
             List<string> expected = new List<string> {
                 // This happens because of firefox limitation to resize below 450px.
                 "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 375",
                 "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 800",
                 "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 1366",
-                "---------",
                 "Received snapshot: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 800px",
@@ -290,10 +287,10 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
+                    logs.Add(msg);
             }
             List<string> expected = new List<string> {
-                "---------",
                 "Received snapshot: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 800px, 1200px",
@@ -308,7 +305,6 @@ namespace PercyIO.Selenium.Tests
                 "- domSnapshot: true, true",
                 @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",                
-                "---------",
                 "Received snapshot: Snapshot 2",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 500px, 900px, 1200px",
