@@ -143,7 +143,7 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued"))
+                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("queued"))
                     logs.Add(msg);
             }
 
@@ -160,6 +160,7 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
+                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",
                 "Received snapshot: Snapshot 2",
                 "- url: http://localhost:5338/test/snapshot",
@@ -173,6 +174,7 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
+                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 2",
                 "Received snapshot: Snapshot 3",
                 "- url: http://localhost:5338/test/snapshot",
@@ -186,6 +188,7 @@ namespace PercyIO.Selenium.Tests
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
+                @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 3",
             };
 
