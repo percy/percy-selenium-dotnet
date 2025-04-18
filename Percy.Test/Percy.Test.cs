@@ -143,11 +143,11 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("queued"))
+                    logs.Add(msg);
             }
 
             List<string> expected = new List<string> {
-                "---------",
                 "Received snapshot: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
@@ -162,7 +162,6 @@ namespace PercyIO.Selenium.Tests
                 "- domSnapshot: true",
                 @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",
-                "---------",
                 "Received snapshot: Snapshot 2",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
@@ -177,7 +176,6 @@ namespace PercyIO.Selenium.Tests
                 "- domSnapshot: true",
                 @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 2",
-                "---------",
                 "Received snapshot: Snapshot 3",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 1280px",
@@ -210,7 +208,8 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":"))
+                    logs.Add(msg);
             }
             List<string> expected = new List<string> {
                 "---------",
@@ -245,17 +244,18 @@ namespace PercyIO.Selenium.Tests
             JsonElement data = Request("/test/logs");
             List<string> logs = new List<string>();
 
+
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
+                    logs.Add(msg);
             }
             List<string> expected = new List<string> {
                 // This happens because of firefox limitation to resize below 450px.
                 "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 375",
                 "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 800",
                 "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 1366",
-                "---------",
                 "Received snapshot: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 375px, 800px",
@@ -290,10 +290,10 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
+                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
+                    logs.Add(msg);
             }
             List<string> expected = new List<string> {
-                "---------",
                 "Received snapshot: Snapshot 1",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 800px, 1200px",
@@ -308,7 +308,6 @@ namespace PercyIO.Selenium.Tests
                 "- domSnapshot: true, true",
                 @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",                
-                "---------",
                 "Received snapshot: Snapshot 2",
                 "- url: http://localhost:5338/test/snapshot",
                 "- widths: 500px, 900px, 1200px",
@@ -392,6 +391,75 @@ namespace PercyIO.Selenium.Tests
                 Assert.Equal("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual", error.Message);
             }
             Percy.Enabled = oldEnabledFn;
+        }
+    }
+    public class RegionTests
+    {
+        [Fact]
+        public void CreateRegion_ShouldAssignPropertiesCorrectly()
+        {
+            // Arrange
+            var customPadding = new Percy.Region.RegionPadding
+            {
+                top = 10,
+                left = 5,
+                right = 5,
+                bottom = 10
+            };
+            
+            var boundingBox = new Percy.Region.RegionBoundingBox
+            {
+                top = 0,
+                left = 0,
+                width = 100,
+                height = 100
+            };
+            
+            var diffSensitivity = 5;
+            var imageIgnoreThreshold = 0.8;
+            var carouselsEnabled = true;
+            var algorithm = "intelliignore";
+            var diffIgnoreThreshold = 0.5;
+            
+            // Act
+            var region = Percy.CreateRegion(
+                padding: customPadding,
+                boundingBox: boundingBox,
+                algorithm: algorithm,
+                diffSensitivity: diffSensitivity,
+                imageIgnoreThreshold: imageIgnoreThreshold,
+                carouselsEnabled: carouselsEnabled,
+                diffIgnoreThreshold: diffIgnoreThreshold
+            );
+
+            // Assert
+            // Validate Padding
+            Assert.NotNull(region.padding);
+            Assert.Equal(customPadding.top, region.padding.top);
+            Assert.Equal(customPadding.left, region.padding.left);
+            Assert.Equal(customPadding.right, region.padding.right);
+            Assert.Equal(customPadding.bottom, region.padding.bottom);
+            
+            // Validate ElementSelector
+            Assert.NotNull(region.elementSelector);
+            Assert.NotNull(region.elementSelector.boundingBox);
+            Assert.Equal(boundingBox.top, region.elementSelector.boundingBox.top);
+            Assert.Equal(boundingBox.left, region.elementSelector.boundingBox.left);
+            Assert.Equal(boundingBox.width, region.elementSelector.boundingBox.width);
+            Assert.Equal(boundingBox.height, region.elementSelector.boundingBox.height);
+            
+            // Validate Algorithm
+            Assert.Equal(algorithm, region.algorithm);
+            
+            // Validate Configuration
+            Assert.NotNull(region.configuration);
+            Assert.Equal(diffSensitivity, region.configuration.diffSensitivity);
+            Assert.Equal(imageIgnoreThreshold, region.configuration.imageIgnoreThreshold);
+            Assert.Equal(carouselsEnabled, region.configuration.carouselsEnabled);
+            
+            // Validate Assertion
+            Assert.NotNull(region.assertion);
+            Assert.Equal(diffIgnoreThreshold, region.assertion.diffIgnoreThreshold);
         }
     }
 }

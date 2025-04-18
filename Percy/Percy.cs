@@ -191,7 +191,113 @@ namespace PercyIO.Selenium
                 return (bool) (_enabled = false);
             }
         };
+        public class Region 
+        { 
+            public RegionElementSelector elementSelector { get; set; } 
+            public RegionPadding padding { get; set; } 
+            public string algorithm { get; set; } 
+            public RegionConfiguration configuration { get; set; } 
+            public RegionAssertion assertion { get; set; } 
 
+            // Rename the nested class to RegionElementSelector or another unique name
+            public class RegionElementSelector 
+            { 
+                public RegionBoundingBox boundingBox { get; set; } 
+                public string elementXpath { get; set; } 
+                public string elementCSS { get; set; } 
+            } 
+
+            public class RegionBoundingBox 
+            { 
+                public int top { get; set; } 
+                public int left { get; set; } 
+                public int width { get; set; } 
+                public int height { get; set; } 
+            } 
+
+            public class RegionPadding 
+            { 
+                public int top { get; set; } 
+                public int left { get; set; } 
+                public int right { get; set; } 
+                public int bottom { get; set; } 
+            } 
+
+            public class RegionConfiguration 
+            { 
+                public int? diffSensitivity { get; set; } 
+                public double? imageIgnoreThreshold { get; set; } 
+                public bool? carouselsEnabled { get; set; } 
+                public bool? bannersEnabled { get; set; } 
+                public bool? adsEnabled { get; set; } 
+            } 
+
+            public class RegionAssertion 
+            { 
+                public double? diffIgnoreThreshold { get; set; } 
+            }
+        }
+
+
+        public static Region CreateRegion(
+            Region.RegionBoundingBox? boundingBox = null,
+            string? elementXpath = null,
+            string? elementCSS = null,
+            Region.RegionPadding? padding = null,
+            string algorithm = "ignore",
+            int? diffSensitivity = null,
+            double? imageIgnoreThreshold = null,
+            bool? carouselsEnabled = null,
+            bool? bannersEnabled = null,
+            bool? adsEnabled = null,
+            double? diffIgnoreThreshold = null)
+        {
+            var elementSelector = new Region.RegionElementSelector
+            {
+                boundingBox = boundingBox,
+                elementXpath = elementXpath,
+                elementCSS = elementCSS
+            };
+
+            var region = new Region
+            {
+                algorithm = algorithm,
+                elementSelector = elementSelector,
+                padding = padding
+            };
+
+            if (new[] { "standard", "intelliignore" }.Contains(algorithm))
+            {
+                var configuration = new Region.RegionConfiguration
+                {
+                    diffSensitivity = diffSensitivity,
+                    imageIgnoreThreshold = imageIgnoreThreshold,
+                    carouselsEnabled = carouselsEnabled,
+                    bannersEnabled = bannersEnabled,
+                    adsEnabled = adsEnabled
+                };
+
+                // Check if any configuration value is set and add it to the region
+                if (configuration.diffSensitivity.HasValue || 
+                    configuration.imageIgnoreThreshold.HasValue || 
+                    configuration.carouselsEnabled.HasValue || 
+                    configuration.bannersEnabled.HasValue || 
+                    configuration.adsEnabled.HasValue)
+                {
+                    region.configuration = configuration;
+                }
+            }
+
+            if (diffIgnoreThreshold.HasValue)
+            {
+                region.assertion = new Region.RegionAssertion
+                {
+                    diffIgnoreThreshold = diffIgnoreThreshold
+                };
+            }
+
+            return region;
+        }
         private static dynamic getSerializedDom(WebDriver driver, object cookies, Dictionary<string, object>? options) {
             var opts = JsonSerializer.Serialize(options);
             string script = $"return PercyDOM.serialize({opts})";
