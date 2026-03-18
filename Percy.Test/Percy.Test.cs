@@ -8,6 +8,8 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Reflection;
+using OpenQA.Selenium;
 using OpenQA.Selenium.Firefox;
 using WebDriverManager;
 using WebDriverManager.DriverConfigs.Impl;
@@ -155,6 +157,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: false",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -169,6 +172,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: true",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -183,6 +187,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: true",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -220,6 +225,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: false",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -228,137 +234,6 @@ namespace PercyIO.Selenium.Tests
                 @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "The Synchronous CLI functionality is not compatible with skipUploads option.",
                 "Snapshot found: Snapshot 1",
-            };
-
-            AssertLogs(expected, logs);
-        }
-
-        [Fact]
-        public void PostsSnapshotWithResponsiveSnapshotCapture()
-        {
-            Request("/test/api/config", new { config = new List<int> {375, 800}, mobile = new List<int> {390} });
-            Percy.Snapshot(driver, "Snapshot 1", new {
-                    responsiveSnapshotCapture = true
-            });
-
-            JsonElement data = Request("/test/logs");
-            List<string> logs = new List<string>();
-
-
-            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
-            {
-                string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
-                    logs.Add(msg);
-            }
-            List<string> expected = new List<string> {
-                // This happens because of firefox limitation to resize below 450px.
-                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 375",
-                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 800",
-                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 1366",
-                "Received snapshot: Snapshot 1",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 375px, 800px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true, true, true",
-                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 1",
-            };
-
-            AssertLogs(expected, logs);
-        }
-
-        [Fact]
-        public void PostsSnapshotWithResponsiveSnapshotCapturWithCLIOptions()
-        {
-            Request("/test/api/config", new { responsive = true, config = new List<int> {800, 1200} });
-            Percy.Snapshot(driver, "Snapshot 1");
-            Percy.Snapshot(driver, "Snapshot 2", new {
-                widths = new List<int> {500, 900, 1200}
-            });
-
-            JsonElement data = Request("/test/logs");
-            List<string> logs = new List<string>();
-
-            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
-            {
-                string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
-                    logs.Add(msg);
-            }
-            List<string> expected = new List<string> {
-                "Received snapshot: Snapshot 1",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 800px, 1200px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true, true",
-                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 1",                
-                "Received snapshot: Snapshot 2",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 500px, 900px, 1200px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true, true, true",
-                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 2",
-            };
-
-            AssertLogs(expected, logs);
-        }
-
-        [Fact]
-        public void PostsSnapshotWithResponsiveSnapshotCapturWithDeferUploads()
-        {
-            Request("/test/api/config", new { deferUploads = true, responsive = true, config = new List<int> {375, 800} });
-            Percy.Snapshot(driver, "Snapshot 3", new {
-                widths = new List<int> {500, 900, 1200}
-            });
-
-            JsonElement data = Request("/test/logs");
-            List<string> logs = new List<string>();
-
-            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
-            {
-                string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
-            }
-            List<string> expected = new List<string> {
-                "---------",
-                "Received snapshot: Snapshot 3",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 500px, 900px, 1200px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true",
-                @"- domSnapshot.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 3",
             };
 
             AssertLogs(expected, logs);

@@ -305,36 +305,207 @@ namespace PercyIO.Selenium
 
             return region;
         }
-        private static dynamic getSerializedDom(WebDriver driver, object cookies, Dictionary<string, object>? options) {
+        private static bool IsUnsupportedIframeSrc(string? src)
+        {
+            return string.IsNullOrEmpty(src) ||
+                   src == "about:blank" ||
+                   src.StartsWith("javascript:") ||
+                   src.StartsWith("data:") ||
+                   src.StartsWith("vbscript:");
+        }
+
+        private static string GetOrigin(string url)
+        {
+            try
+            {
+                Uri uri = new Uri(url);
+                return $"{uri.Scheme}://{uri.Authority}";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static Dictionary<string, object>? ProcessFrame(
+            WebDriver driver,
+            IWebElement frameElement,
+            Dictionary<string, object>? options,
+            string domJs)
+        {
+            // Read attributes while still in parent context — these calls will
+            // fail if made after switchTo().frame().
+            string? frameUrl = frameElement.GetAttribute("src") ?? "unknown-src";
+            Log($"processFrame: checking iframe src=\"{frameUrl}\"", "debug");
+
+            string? percyElementId = frameElement.GetAttribute("data-percy-element-id");
+            Log($"processFrame: data-percy-element-id=\"{percyElementId}\" for src=\"{frameUrl}\"", "debug");
+            if (string.IsNullOrEmpty(percyElementId))
+            {
+                Log($"Skipping frame {frameUrl}: no matching percyElementId found", "debug");
+                return null;
+            }
+
+            Dictionary<string, object>? iframeSnapshot = null;
+            try
+            {
+                driver.SwitchTo().Frame(frameElement);
+                // Inject Percy DOM into the cross-origin frame context
+                driver.ExecuteScript(domJs);
+                // Serialize inside the frame; enableJavaScript=true is required for CORS iframes
+                var iframeOptions = options != null
+                    ? new Dictionary<string, object>(options)
+                    : new Dictionary<string, object>();
+                iframeOptions["enableJavaScript"] = true;
+                var iframeOpts = JsonSerializer.Serialize(iframeOptions);
+                iframeSnapshot = (Dictionary<string, object>)driver.ExecuteScript(
+                    $"return PercyDOM.serialize({iframeOpts})");
+            }
+            catch (Exception e)
+            {
+                Log($"Failed to process cross-origin frame {frameUrl}: {e.Message}", "error");
+                throw new Exception($"Failed to process cross-origin frame {frameUrl}", e);
+            }
+            finally
+            {
+                try
+                {
+                    driver.SwitchTo().DefaultContent();
+                }
+                catch (Exception err)
+                {
+                    throw new Exception(
+                        $"Fatal: could not exit iframe context after processing \"{frameUrl}\". Driver may be unstable.", err);
+                }
+            }
+
+            return new Dictionary<string, object>
+            {
+                { "iframeData", new Dictionary<string, object> { { "percyElementId", percyElementId } } },
+                { "iframeSnapshot", iframeSnapshot },
+                { "frameUrl", frameUrl }
+            };
+        }
+
+        private static dynamic getSerializedDom(
+            WebDriver driver,
+            object cookies,
+            Dictionary<string, object>? options,
+            string? domJs = null)
+        {
             var opts = JsonSerializer.Serialize(options);
             string script = $"return PercyDOM.serialize({opts})";
             var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
             domSnapshot["cookies"] = cookies;
+
+            // Process CORS iframes when DOM script is available
+            if (!string.IsNullOrEmpty(domJs))
+            {
+                try
+                {
+                    string pageOrigin = GetOrigin(driver.Url);
+                    var iframes = driver.FindElements(By.TagName("iframe"));
+                    if (iframes.Count > 0)
+                    {
+                        var processedFrames = new List<Dictionary<string, object>>();
+                        foreach (IWebElement frame in iframes)
+                        {
+                            string? frameSrc = frame.GetAttribute("src");
+                            if (IsUnsupportedIframeSrc(frameSrc))
+                                continue;
+
+                            string frameOrigin;
+                            try
+                            {
+                                Uri baseUri = new Uri(driver.Url);
+                                Uri resolvedUri = new Uri(baseUri, frameSrc);
+                                frameOrigin = GetOrigin(resolvedUri.ToString());
+                            }
+                            catch (Exception e)
+                            {
+                                Log($"Skipping iframe \"{frameSrc}\": {e.Message}", "debug");
+                                continue;
+                            }
+
+                            if (frameOrigin == pageOrigin)
+                                continue;
+
+                            try
+                            {
+                                var result = ProcessFrame(driver, frame, options, domJs);
+                                if (result != null)
+                                    processedFrames.Add(result);
+                            }
+                            catch (Exception e)
+                            {
+                                Log($"Skipping frame \"{frameSrc}\" due to error: {e.Message}", "debug");
+                                if (e.Message.Contains("Fatal"))
+                                    throw;
+                            }
+                        }
+                        if (processedFrames.Count > 0)
+                            domSnapshot["corsIframes"] = processedFrames;
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log($"Failed to process cross-origin iframes: {e.Message}", "debug");
+                    if (e.Message.Contains("Fatal"))
+                        throw;
+                }
+            }
+
             return domSnapshot;
         }
 
-        // Method to check if ChromeDriver supports CDP by checking the existence of ExecuteCdpCommand
-        private static bool IsCdpSupported(ChromeDriver chromeDriver)
+        private static bool IsChromeBrowser(WebDriver driver)
         {
-            return chromeDriver.GetType().GetMethod("ExecuteCdpCommand") != null;
+            if (driver is ChromeDriver)
+            {
+                return true;
+            }
+
+            if (driver is IHasCapabilities hasCapabilities)
+            {
+                object? browserName = hasCapabilities.Capabilities?.GetCapability("browserName");
+                return browserName?.ToString()?.Equals("chrome", StringComparison.OrdinalIgnoreCase) == true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResizeWithCdp(WebDriver driver, int width, int height)
+        {
+            if (!IsChromeBrowser(driver))
+            {
+                return false;
+            }
+
+            MethodInfo? executeCdpMethod = driver.GetType().GetMethod("ExecuteCdpCommand", new[] { typeof(string), typeof(Dictionary<string, object>) });
+            if (executeCdpMethod == null)
+            {
+                return false;
+            }
+
+            var commandParams = new Dictionary<string, object>
+            {
+                { "width", width },
+                { "height", height },
+                { "deviceScaleFactor", 1 },
+                { "mobile", false }
+            };
+
+            executeCdpMethod.Invoke(driver, new object[] { "Emulation.setDeviceMetricsOverride", commandParams });
+            return true;
         }
 
         private static void ChangeWindowDimensionAndWait(WebDriver driver, int width, int height, int resizeCount)
         {
             try
             {
-                // Check if the driver is ChromeDriver and supports CDP
-                if (driver is ChromeDriver chromeDriver && IsCdpSupported(chromeDriver))
+                if (TryResizeWithCdp(driver, width, height))
                 {
-                    var commandParams = new Dictionary<string, object>
-                    {
-                        { "width", width },
-                        { "height", height },
-                        { "deviceScaleFactor", 1 },
-                        { "mobile", false }
-                    };
-
-                    chromeDriver.ExecuteCdpCommand("Emulation.setDeviceMetricsOverride", commandParams);
+                    Log($"Attempting to resize using CDP for width {width} and height {height}", "debug");
                 }
                 else
                 {
@@ -548,7 +719,7 @@ namespace PercyIO.Selenium
                 if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
-                var domSnapshot =  getSerializedDom(driver, cookies, options);
+                var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);
                 domSnapshot["width"] = width;
                 if (height.HasValue)
                     domSnapshot["height"] = height.Value;
@@ -593,7 +764,7 @@ namespace PercyIO.Selenium
                 if (isResponsiveSnapshotCapture(options)) {
                     domSnapshot = CaptureResponsiveDom(driver, cookies, options);
                 } else {
-                    domSnapshot = getSerializedDom(driver, cookies, options);
+                    domSnapshot = getSerializedDom(driver, cookies, options, _dom);
                 }
 
                 Options snapshotOptions = new Options {
