@@ -28,8 +28,12 @@ namespace PercyIO.Selenium
         
         public static readonly string RESONSIVE_CAPTURE_SLEEP_TIME =
              Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
+        public static readonly bool PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE =
+            (Environment.GetEnvironmentVariable("PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE") ?? "")
+                .Equals("true", StringComparison.OrdinalIgnoreCase);
         public static readonly string CLIENT_INFO =
             typeof(Percy).Assembly.GetCustomAttribute<ClientInfoAttribute>().ClientInfo;
+        
         public static readonly string ENVIRONMENT_INFO = Regex.Replace(
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
@@ -306,28 +310,6 @@ namespace PercyIO.Selenium
             return domSnapshot;
         }
 
-        private static List<int> GetWidthsForMultiDom(int[] widths)
-        {
-            var fetchedWidthsElement = (JsonElement)eligibleWidths;
-            var allWidths = fetchedWidthsElement.GetProperty("mobile")
-                                            .EnumerateArray()
-                                            .Select(x => x.GetInt32())
-                                            .ToList();
-
-            if (widths.Length != 0)
-            {
-                allWidths.AddRange(widths);
-            }
-            else
-            {
-                allWidths.AddRange(fetchedWidthsElement.GetProperty("config")
-                                                .EnumerateArray()
-                                                .Select(x => x.GetInt32()));
-            }
-
-            return allWidths.Distinct().ToList();
-        }
-
         // Method to check if ChromeDriver supports CDP by checking the existence of ExecuteCdpCommand
         private static bool IsCdpSupported(ChromeDriver chromeDriver)
         {
@@ -361,7 +343,6 @@ namespace PercyIO.Selenium
                 Log($"Resizing using CDP failed, falling back to driver for width {width}: {e.Message}", "debug");
                 driver.Manage().Window.Size = new System.Drawing.Size(width, height);
             }
-
             // Wait for window resize event using WebDriverWait
             try
             {
@@ -374,10 +355,56 @@ namespace PercyIO.Selenium
             }
         }
 
+        private class ResponsiveWidth
+        {
+            public int width { get; set; }
+            public int? height { get; set; }
+        }
+        private static List<ResponsiveWidth> GetResponsiveWidths(List<int>? widths = null)
+        {
+            widths ??= new List<int>();
+
+            try
+            {
+                string queryParam = widths.Count > 0 ? $"?widths={string.Join(",", widths)}" : "";
+                dynamic res = Request($"/percy/widths-config{queryParam}");
+                var data = JsonSerializer.Deserialize<JsonElement>(res.content);
+
+                if (!data.TryGetProperty("widths", out JsonElement widthsElement) || widthsElement.ValueKind != JsonValueKind.Array)
+                {
+                    Log("Update Percy CLI to the latest version to use responsiveSnapshotCapture", "error");
+                    throw new Exception("Update Percy CLI to the latest version to use responsiveSnapshotCapture");
+                }
+
+                return widthsElement.EnumerateArray().Select(widthItem =>
+                {
+                    if (widthItem.ValueKind == JsonValueKind.Number)
+                    {
+                        return new ResponsiveWidth { width = widthItem.GetInt32() };
+                    }
+
+                    int width = widthItem.GetProperty("width").GetInt32();
+                    int? height = null;
+                    if (widthItem.TryGetProperty("height", out JsonElement heightElement) && heightElement.ValueKind == JsonValueKind.Number)
+                    {
+                        height = heightElement.GetInt32();
+                    }
+
+                    return new ResponsiveWidth { width = width, height = height };
+                }).ToList();
+            }
+            catch (Exception error)
+            {
+                Log("Update Percy CLI to the latest version to use responsiveSnapshotCapture", "error");
+                Log($"Failed to get responsive widths: {error}", "debug");
+                throw new Exception("Update Percy CLI to the latest version to use responsiveSnapshotCapture", error);
+            }
+        }
         public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
         {
             List<int> widths = options != null && options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
-            widths = GetWidthsForMultiDom(widths.ToArray());
+            List<ResponsiveWidth> widthHeights = GetResponsiveWidths(widths);
+
             var domSnapshots = new List<Dictionary<string, object>>();
 
             var windowSize = driver.Manage().Window.Size;
@@ -388,18 +415,41 @@ namespace PercyIO.Selenium
             int sleepTime = 0;
             driver.ExecuteScript("PercyDOM.waitForResize()");
 
-            foreach (int width in widths)
+            foreach (ResponsiveWidth widthHeight in widthHeights)
             {
+                int width = widthHeight.width;
+                int? height = widthHeight.height;
+
                 if (lastWindowWidth != width) {
                     resizeCount++;
                     ChangeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
                     lastWindowWidth = width;
+                }
+
+                if (PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE)
+                {
+                    try
+                    {
+                        driver.Navigate().Refresh();
+                        if ((bool)driver.ExecuteScript("return !!window.PercyDOM") == false)
+                        {
+                            driver.ExecuteScript(GetPercyDOM());
+                        }
+                        driver.ExecuteScript("PercyDOM.waitForResize()");
+                        resizeCount = 0;
+                    }
+                    catch (Exception error)
+                    {
+                        Log($"Page reload failed during responsive capture for width {width}: {error.Message}", "debug");
+                    }
                 }
                 if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
                 var domSnapshot =  getSerializedDom(driver, cookies, options);
                 domSnapshot["width"] = width;
+                if (height.HasValue)
+                    domSnapshot["height"] = height.Value;
                 domSnapshots.Add(domSnapshot);
             }
 
