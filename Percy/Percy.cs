@@ -31,6 +31,9 @@ namespace PercyIO.Selenium
         public static readonly bool PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE =
             (Environment.GetEnvironmentVariable("PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE") ?? "")
                 .Equals("true", StringComparison.OrdinalIgnoreCase);
+        public static readonly bool PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT =
+            (Environment.GetEnvironmentVariable("PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT") ?? "")
+                .Equals("true", StringComparison.OrdinalIgnoreCase);
         public static readonly string CLIENT_INFO =
             typeof(Percy).Assembly.GetCustomAttribute<ClientInfoAttribute>().ClientInfo;
         
@@ -400,6 +403,103 @@ namespace PercyIO.Selenium
                 throw new Exception("Update Percy CLI to the latest version to use responsiveSnapshotCapture", error);
             }
         }
+        private static int ResolveResponsiveTargetHeight(WebDriver driver, Dictionary<string, object> options, int currentHeight)
+        {
+            if (!PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT)
+            {
+                Log($"PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT is disabled, using current window height: {currentHeight}", "debug");
+                return currentHeight;
+            }
+
+            int? minHeight = ResolveConfiguredMinHeight(options);
+            if (minHeight == null)
+            {
+                Log($"minHeight not found in options or cliConfig, using current window height: {currentHeight}", "debug");
+                return currentHeight;
+            }
+
+            return CalculateTargetHeight(driver, minHeight.Value, currentHeight);
+        }
+
+        private static int? ResolveConfiguredMinHeight(Dictionary<string, object> options)
+        {
+            object minHeightObj = null;
+            
+            if (options != null && options.ContainsKey("minHeight"))
+            {
+                minHeightObj = options["minHeight"];
+            }
+            else if (cliConfig != null)
+            {
+                try
+                {
+                    JsonElement config = (JsonElement)cliConfig;
+                    if (config.TryGetProperty("snapshot", out JsonElement snapshotElement))
+                    {
+                        if (snapshotElement.TryGetProperty("minHeight", out JsonElement minHeightElement))
+                        {
+                            minHeightObj = minHeightElement.GetInt32();
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log($"Error reading minHeight from cliConfig: {e.Message}", "debug");
+                    return null;
+                }
+            }
+
+            if (minHeightObj == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                if (minHeightObj is int intValue)
+                {
+                    return intValue;
+                }
+                if (int.TryParse(minHeightObj.ToString(), out int parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+            catch (FormatException e)
+            {
+                Log($"Invalid minHeight value {minHeightObj}; expected integer, using current window height instead. {e.Message}", "debug");
+                return null;
+            }
+
+            return null;
+        }
+
+        private static int CalculateTargetHeight(WebDriver driver, int minHeight, int fallbackHeight)
+        {
+            try
+            {
+                object result = driver.ExecuteScript($"return window.outerHeight - window.innerHeight + {minHeight}");
+                if (result is long longValue)
+                {
+                    return (int)longValue;
+                }
+                if (result is int intValue)
+                {
+                    return intValue;
+                }
+                if (result is double doubleValue)
+                {
+                    return (int)doubleValue;
+                }
+                return fallbackHeight;
+            }
+            catch (Exception e)
+            {
+                Log($"Error calculating target height: {e.Message}", "debug");
+                return fallbackHeight;
+            }
+        }
+
         public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
         {
             List<int> widths = options != null && options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
@@ -414,15 +514,17 @@ namespace PercyIO.Selenium
             int resizeCount = 0;
             int sleepTime = 0;
             driver.ExecuteScript("PercyDOM.waitForResize()");
+            int targetHeight = ResolveResponsiveTargetHeight(driver, options, currentHeight);
 
             foreach (ResponsiveWidth widthHeight in widthHeights)
             {
                 int width = widthHeight.width;
                 int? height = widthHeight.height;
+                int heightForWidth = height.HasValue ? height.Value : targetHeight;
 
                 if (lastWindowWidth != width) {
                     resizeCount++;
-                    ChangeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
+                    ChangeWindowDimensionAndWait(driver, width, heightForWidth, resizeCount);
                     lastWindowWidth = width;
                 }
 
