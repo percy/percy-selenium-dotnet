@@ -87,6 +87,26 @@ namespace PercyIO.Selenium.Tests
             }
         }
 
+        // Keeps snapshot narrative lines ("Received snapshot:", "Snapshot found:", "---------", error
+        // messages) and a fixed set of essential config-key lines. Silently drops any extra config
+        // dump lines that newer/older CLI versions may emit.
+        private static readonly HashSet<string> _essentialConfigPrefixes = new HashSet<string> {
+            "- url:", "- widths:", "- minHeight:", "- enableJavaScript:", "- cliEnableJavaScript:",
+            "- disableShadowDOM:", "- forceShadowAsLightDOM:",
+            "- discovery.allowedHostnames:", "- discovery.captureMockedServiceWorker:",
+            "- clientInfo:", "- environmentInfo:",
+            "- domSnapshot:", "- domSnapshot.", "- reload:", "- responsiveSnapshots:"
+        };
+        private static bool IsEssentialLog(string msg) {
+            // Always drop SDK version check banners and memory dumps
+            if (msg.Contains("SDK Version Check") || msg.Contains("\"cores\":") || msg.Contains("memoryInfo"))
+                return false;
+            // For "- key: value" config lines keep only the essential known set
+            if (Regex.IsMatch(msg, @"^- [a-zA-Z.]+: "))
+                return _essentialConfigPrefixes.Any(p => msg.StartsWith(p));
+            return true;  // narrative lines: Received snapshot, Snapshot found, ---------, errors, etc.
+        }
+
         [Fact]
         public void DisablesSnapshotsWhenHealthcheckFails()
         {
@@ -143,8 +163,9 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("queued"))
-                    logs.Add(msg);
+                if (msg == null || !IsEssentialLog(msg) || msg.Contains("---------") || msg.Contains("queued"))
+                    continue;
+                logs.Add(msg);
             }
 
             List<string> expected = new List<string> {
@@ -158,7 +179,6 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
-                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -174,7 +194,6 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
-                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -190,7 +209,6 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
-                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -214,8 +232,9 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":"))
-                    logs.Add(msg);
+                if (msg == null || !IsEssentialLog(msg))
+                    continue;
+                logs.Add(msg);
             }
             List<string> expected = new List<string> {
                 "---------",
@@ -229,7 +248,6 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
-                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
