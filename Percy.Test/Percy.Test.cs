@@ -8,8 +8,6 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Reflection;
-using OpenQA.Selenium;
 using OpenQA.Selenium.Firefox;
 using WebDriverManager;
 using WebDriverManager.DriverConfigs.Impl;
@@ -239,6 +237,59 @@ namespace PercyIO.Selenium.Tests
             AssertLogs(expected, logs);
         }
 
+        [Fact]
+         public void PostsResponsiveSnapshotWithPerWidthHeights()
+         {
+             Percy.Snapshot(driver, "Responsive snapshot with heights", new
+             {
+                 responsiveSnapshots = new[]
+                 {
+                     new { width = 375, height = 667 },
+                     new { width = 1280, height = 720 }
+                 },
+                 reload = false,
+                 minHeight = 0
+             });
+             JsonElement data = Request("/test/logs");
+             List<string> logs = new List<string>();
+             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+             {
+                 string? msg = log.GetProperty("message").GetString();
+                 if (msg != null && !msg.Contains("\"cores\":"))
+                     logs.Add(msg);
+             }
+             Assert.Contains("Received snapshot: Responsive snapshot with heights", logs);
+             Assert.Contains("- reload: false", logs);
+             Assert.Contains("- minHeight: 0px", logs);
+             Assert.Contains("- widths: 375x667px, 1280x720px", logs);
+         }
+         [Fact]
+         public void PostsResponsiveSnapshotWithReloadAndCustomMinHeight()
+         {
+             Percy.Snapshot(driver, "Responsive snapshot reload", new
+             {
+                 responsiveSnapshots = new[]
+                 {
+                     new { width = 375, height = 800 },
+                     new { width = 1280, height = 900 }
+                 },
+                 reload = true,
+                 minHeight = 2000
+             });
+             JsonElement data = Request("/test/logs");
+             List<string> logs = new List<string>();
+             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+             {
+                 string? msg = log.GetProperty("message").GetString();
+                 if (msg != null && !msg.Contains("\"cores\":"))
+                     logs.Add(msg);
+             }
+             Assert.Contains("Received snapshot: Responsive snapshot reload", logs);
+             Assert.Contains("- reload: true", logs);
+             Assert.Contains("- minHeight: 2000px", logs);
+             Assert.Contains("- widths: 375x800px, 1280x900px", logs);
+         }
+         
         [Fact]
         public void HandlesExceptionsDuringSnapshot()
         {

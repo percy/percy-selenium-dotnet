@@ -308,10 +308,9 @@ namespace PercyIO.Selenium
         private static bool IsUnsupportedIframeSrc(string? src)
         {
             return string.IsNullOrEmpty(src) ||
-                   src == "about:blank" ||
-                   src.StartsWith("javascript:") ||
-                   src.StartsWith("data:") ||
-                   src.StartsWith("vbscript:");
+                    src.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase) ||
+                    src.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                    src.StartsWith("vbscript:", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string GetOrigin(string url)
@@ -594,7 +593,7 @@ namespace PercyIO.Selenium
 
         private static int? ResolveConfiguredMinHeight(Dictionary<string, object> options)
         {
-            object minHeightObj = null;
+            object? minHeightObj = null;
             
             if (options != null && options.ContainsKey("minHeight"))
             {
@@ -686,6 +685,11 @@ namespace PercyIO.Selenium
             int sleepTime = 0;
             driver.ExecuteScript("PercyDOM.waitForResize()");
             int targetHeight = ResolveResponsiveTargetHeight(driver, options, currentHeight);
+
+             if (_dom == null)
+             {
+                 _dom = GetPercyDOM();
+             }
 
             foreach (ResponsiveWidth widthHeight in widthHeights)
             {
