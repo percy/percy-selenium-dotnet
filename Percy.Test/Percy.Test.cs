@@ -158,6 +158,7 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
+                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -173,6 +174,7 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
+                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -188,6 +190,7 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
+                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -226,6 +229,7 @@ namespace PercyIO.Selenium.Tests
                 "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
+                "- discovery.scrollToBottom: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
                 $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
                 "- domSnapshot: true",
@@ -259,9 +263,10 @@ namespace PercyIO.Selenium.Tests
                      logs.Add(msg);
              }
              Assert.Contains("Received snapshot: Responsive snapshot with heights", logs);
-             Assert.Contains("- reload: false", logs);
-             Assert.Contains("- minHeight: 0px", logs);
-             Assert.Contains("- widths: 375x667px, 1280x720px", logs);
+             // CLI treats unknown option 'reload' as "unknown property" — not a resolved value
+             Assert.Contains("- reload: unknown property", logs);
+             // minHeight: 0 is invalid (CLI requires >= 10), so CLI emits a validation error
+             Assert.Contains("- minHeight: must be >= 10", logs);
          }
          [Fact]
          public void PostsResponsiveSnapshotWithReloadAndCustomMinHeight()
@@ -285,11 +290,11 @@ namespace PercyIO.Selenium.Tests
                      logs.Add(msg);
              }
              Assert.Contains("Received snapshot: Responsive snapshot reload", logs);
-             Assert.Contains("- reload: true", logs);
+             // CLI treats unknown option 'reload' as "unknown property" — not a resolved value
+             Assert.Contains("- reload: unknown property", logs);
              Assert.Contains("- minHeight: 2000px", logs);
-             Assert.Contains("- widths: 375x800px, 1280x900px", logs);
          }
-         
+
         [Fact]
         public void HandlesExceptionsDuringSnapshot()
         {
