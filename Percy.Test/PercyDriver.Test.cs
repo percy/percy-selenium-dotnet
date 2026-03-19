@@ -2,13 +2,11 @@ using Moq;
 using Xunit;
 using System.Collections.Generic;
 using OpenQA.Selenium;
-using OpenQA.Selenium.Remote;
 using Newtonsoft.Json;
 using RichardSzalay.MockHttp;
 using System.Net.Http;
 using System;
 using Newtonsoft.Json.Linq;
-using System.Reflection;
 
 namespace PercyIO.Selenium.Tests
 {
