@@ -87,9 +87,6 @@ namespace PercyIO.Selenium.Tests
             }
         }
 
-        // Keeps snapshot narrative lines ("Received snapshot:", "Snapshot found:", "---------", error
-        // messages) and a fixed set of essential config-key lines. Silently drops any extra config
-        // dump lines that newer/older CLI versions may emit.
         private static readonly HashSet<string> _essentialConfigPrefixes = new HashSet<string> {
             "- url:", "- widths:", "- minHeight:", "- enableJavaScript:", "- cliEnableJavaScript:",
             "- disableShadowDOM:", "- forceShadowAsLightDOM:",
