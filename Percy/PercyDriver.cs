@@ -50,7 +50,7 @@ namespace PercyIO.Selenium
     }
 
     internal PercyDriver(IPercySeleniumDriver driver)
-    {;
+    {
       this.percySeleniumDriver = driver;
       setValues(this.percySeleniumDriver);
     }

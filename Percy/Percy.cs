@@ -26,8 +26,9 @@ namespace PercyIO.Selenium
         public static readonly string CLI_API =
             Environment.GetEnvironmentVariable("PERCY_CLI_API") ?? "http://localhost:5338";
         
-        public static readonly string RESONSIVE_CAPTURE_SLEEP_TIME =
-             Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
+        public static readonly string RESPONSIVE_CAPTURE_SLEEP_TIME =
+             Environment.GetEnvironmentVariable("RESPONSIVE_CAPTURE_SLEEP_TIME")
+             ?? Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
         public static readonly bool PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE =
             (Environment.GetEnvironmentVariable("PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE") ?? "")
                 .Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -568,7 +569,6 @@ namespace PercyIO.Selenium
             }
             catch (Exception error)
             {
-                Log("Update Percy CLI to the latest version to use responsiveSnapshotCapture", "error");
                 Log($"Failed to get responsive widths: {error}", "debug");
                 throw new Exception("Update Percy CLI to the latest version to use responsiveSnapshotCapture", error);
             }
@@ -720,7 +720,7 @@ namespace PercyIO.Selenium
                         Log($"Page reload failed during responsive capture for width {width}: {error.Message}", "debug");
                     }
                 }
-                if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
+                if (Int32.TryParse(RESPONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
                 var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);

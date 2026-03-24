@@ -8,13 +8,11 @@ namespace PercyIO.Selenium
 {
  internal class PercySeleniumDriver : IPercySeleniumDriver
  {
-  private object driver;
   private RemoteWebDriver _remoteDriver;
 
   internal PercySeleniumDriver(RemoteWebDriver driver)
   {
     if(!isDriverValid(driver)) throw new Exception("Driver should be of type RemoteWebDriver");
-    this.driver = driver;
     this._remoteDriver = driver;
   }
 
