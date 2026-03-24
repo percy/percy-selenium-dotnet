@@ -700,8 +700,6 @@ namespace PercyIO.Selenium
 
                 var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);
                 domSnapshot["width"] = width;
-                if (height.HasValue)
-                    domSnapshot["height"] = height.Value;
                 domSnapshots.Add(domSnapshot);
             }
 
