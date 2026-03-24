@@ -26,9 +26,8 @@ namespace PercyIO.Selenium
         public static readonly string CLI_API =
             Environment.GetEnvironmentVariable("PERCY_CLI_API") ?? "http://localhost:5338";
         
-        public static readonly string RESPONSIVE_CAPTURE_SLEEP_TIME =
-             Environment.GetEnvironmentVariable("RESPONSIVE_CAPTURE_SLEEP_TIME")
-             ?? Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
+        public static readonly string RESONSIVE_CAPTURE_SLEEP_TIME =
+             Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
         public static readonly bool PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE =
             (Environment.GetEnvironmentVariable("PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE") ?? "")
                 .Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -98,7 +97,7 @@ namespace PercyIO.Selenium
         internal static HttpClient getHttpClient() {
             if (_http == null) {
                 setHttpClient(new HttpClient());
-                _http.Timeout = TimeSpan.FromMinutes(2);
+                _http.Timeout = TimeSpan.FromMinutes(10);
             }
             
             return _http;
@@ -120,32 +119,30 @@ namespace PercyIO.Selenium
         }
 
         // Added isJson since current JSON parsing doesn’t support nested objects and thats why we using different lib
-        private static async Task<dynamic> RequestAsync(string endpoint, object? payload = null, bool isJson = false)
+        private static dynamic Request(string endpoint, object? payload = null, bool isJson = false)
         {
             StringContent? body = payload == null ? null : new StringContent(
                 PayloadParser(payload, isJson), Encoding.UTF8, "application/json");
-
+            
             HttpClient httpClient = getHttpClient();
-            HttpResponseMessage response = body != null
-                ? await httpClient.PostAsync($"{CLI_API}{endpoint}", body).ConfigureAwait(false)
-                : await httpClient.GetAsync($"{CLI_API}{endpoint}").ConfigureAwait(false);
+            Task<HttpResponseMessage> apiTask = body != null
+                ? httpClient.PostAsync($"{CLI_API}{endpoint}", body)
+                : httpClient.GetAsync($"{CLI_API}{endpoint}");
+            apiTask.Wait();
 
+            HttpResponseMessage response = apiTask.Result;
             response.EnsureSuccessStatusCode();
 
-            string content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            Task<string> contentTask = response.Content.ReadAsStringAsync();
+            contentTask.Wait();
 
             IEnumerable<string>? version = null;
             response.Headers.TryGetValues("x-percy-core-version", out version);
 
             return new {
                 version = version == null ? null : version.First(),
-                content = content
+                content = contentTask.Result
             };
-        }
-
-        private static dynamic Request(string endpoint, object? payload = null, bool isJson = false)
-        {
-            return RequestAsync(endpoint, payload, isJson).GetAwaiter().GetResult();
         }
 
         private static string? _dom = null;
@@ -249,8 +246,6 @@ namespace PercyIO.Selenium
         }
 
 
-        private static readonly string[] ValidAlgorithms = { "ignore", "standard", "intelliignore" };
-
         public static Region CreateRegion(
             Region.RegionBoundingBox? boundingBox = null,
             string? elementXpath = null,
@@ -264,21 +259,6 @@ namespace PercyIO.Selenium
             bool? adsEnabled = null,
             double? diffIgnoreThreshold = null)
         {
-            if (!ValidAlgorithms.Contains(algorithm))
-                throw new ArgumentException(
-                    $"Invalid algorithm '{algorithm}'. Must be one of: {string.Join(", ", ValidAlgorithms)}",
-                    nameof(algorithm));
-
-            if (boundingBox == null && elementXpath == null && elementCSS == null)
-                throw new ArgumentException(
-                    "At least one element selector must be provided: boundingBox, elementXpath, or elementCSS");
-
-            if (boundingBox != null)
-            {
-                if (boundingBox.width < 0 || boundingBox.height < 0)
-                    throw new ArgumentException("Bounding box width and height must not be negative", nameof(boundingBox));
-            }
-
             var elementSelector = new Region.RegionElementSelector
             {
                 boundingBox = boundingBox,
@@ -377,9 +357,8 @@ namespace PercyIO.Selenium
                     : new Dictionary<string, object>();
                 iframeOptions["enableJavaScript"] = true;
                 var iframeOpts = JsonSerializer.Serialize(iframeOptions);
-                var iframeResult = driver.ExecuteScript(
+                iframeSnapshot = (Dictionary<string, object>)driver.ExecuteScript(
                     $"return PercyDOM.serialize({iframeOpts})");
-                iframeSnapshot = iframeResult as Dictionary<string, object>;
             }
             catch (Exception e)
             {
@@ -415,12 +394,7 @@ namespace PercyIO.Selenium
         {
             var opts = JsonSerializer.Serialize(options);
             string script = $"return PercyDOM.serialize({opts})";
-            var result = driver.ExecuteScript(script);
-            if (result == null)
-                throw new InvalidOperationException("PercyDOM.serialize() returned null. Ensure JavaScript is enabled and Percy DOM is loaded.");
-            var domSnapshot = result as Dictionary<string, object>;
-            if (domSnapshot == null)
-                throw new InvalidOperationException($"PercyDOM.serialize() returned unexpected type {result.GetType().Name}. Expected Dictionary<string, object>.");
+            var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
             domSnapshot["cookies"] = cookies;
 
             // Process CORS iframes when DOM script is available
@@ -457,22 +431,26 @@ namespace PercyIO.Selenium
 
                             try
                             {
-                                var frameResult = ProcessFrame(driver, frame, options, domJs);
-                                if (frameResult != null)
-                                    processedFrames.Add(frameResult);
+                                var result = ProcessFrame(driver, frame, options, domJs);
+                                if (result != null)
+                                    processedFrames.Add(result);
                             }
-                            catch (Exception e) when (!e.Message.Contains("Fatal"))
+                            catch (Exception e)
                             {
                                 Log($"Skipping frame \"{frameSrc}\" due to error: {e.Message}", "debug");
+                                if (e.Message.Contains("Fatal"))
+                                    throw;
                             }
                         }
                         if (processedFrames.Count > 0)
                             domSnapshot["corsIframes"] = processedFrames;
                     }
                 }
-                catch (Exception e) when (!e.Message.Contains("Fatal"))
+                catch (Exception e)
                 {
                     Log($"Failed to process cross-origin iframes: {e.Message}", "debug");
+                    if (e.Message.Contains("Fatal"))
+                        throw;
                 }
             }
 
@@ -541,7 +519,7 @@ namespace PercyIO.Selenium
             // Wait for window resize event using WebDriverWait
             try
             {
-                WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(5));
+                WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(1));
                 wait.Until(d => (long)((IJavaScriptExecutor)d).ExecuteScript("return window.resizeCount") == resizeCount);
             }
             catch (WebDriverTimeoutException)
@@ -730,8 +708,7 @@ namespace PercyIO.Selenium
                     try
                     {
                         driver.Navigate().Refresh();
-                        var percyDomCheck = driver.ExecuteScript("return !!window.PercyDOM");
-                        if (percyDomCheck == null || percyDomCheck.Equals(false))
+                        if ((bool)driver.ExecuteScript("return !!window.PercyDOM") == false)
                         {
                             driver.ExecuteScript(GetPercyDOM());
                         }
@@ -743,7 +720,7 @@ namespace PercyIO.Selenium
                         Log($"Page reload failed during responsive capture for width {width}: {error.Message}", "debug");
                     }
                 }
-                if (Int32.TryParse(RESPONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
+                if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
                 var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);
@@ -775,18 +752,13 @@ namespace PercyIO.Selenium
             WebDriver driver, string name,
             Dictionary<string, object>? options = null)
         {
-            if (string.IsNullOrWhiteSpace(name))
-                throw new ArgumentException("Snapshot name must not be null or empty", nameof(name));
-            if (name.Length > 4096)
-                throw new ArgumentException("Snapshot name must not exceed 4096 characters", nameof(name));
             if (!Enabled()) return null;
             if (sessionType == "automate")
                 throw new Exception("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual");
 
             try
             {
-                var percyDomLoaded = driver.ExecuteScript("return !!window.PercyDOM");
-                if (percyDomLoaded == null || percyDomLoaded.Equals(false))
+                if ((bool) driver.ExecuteScript("return !!window.PercyDOM") == false)
                     driver.ExecuteScript(GetPercyDOM());
 
                 var cookies = driver.Manage().Cookies.AllCookies;
@@ -839,10 +811,6 @@ namespace PercyIO.Selenium
             PercyDriver percyDriver, string name,
             Dictionary<string, object>? options = null)
         {
-            if (string.IsNullOrWhiteSpace(name))
-                throw new ArgumentException("Screenshot name must not be null or empty", nameof(name));
-            if (name.Length > 4096)
-                throw new ArgumentException("Screenshot name must not exceed 4096 characters", nameof(name));
             if(!Enabled()) return null;
             if (sessionType != "automate")
                 throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview");
@@ -937,27 +905,6 @@ namespace PercyIO.Selenium
                 options.Add(prop.Name, prop.GetValue(opts));
             
             return Screenshot(driver, name, options);
-        }
-
-        public static async Task<JObject?> SnapshotAsync(
-            WebDriver driver, string name,
-            Dictionary<string, object>? options = null)
-        {
-            return await Task.Run(() => Snapshot(driver, name, options)).ConfigureAwait(false);
-        }
-
-        public static async Task<JObject?> ScreenshotAsync(
-            WebDriver driver, string name,
-            Dictionary<string, object>? options = null)
-        {
-            return await Task.Run(() => Screenshot(driver, name, options)).ConfigureAwait(false);
-        }
-
-        public static async Task<JObject?> ScreenshotAsync(
-            PercyDriver percyDriver, string name,
-            Dictionary<string, object>? options = null)
-        {
-            return await Task.Run(() => Screenshot(percyDriver, name, options)).ConfigureAwait(false);
         }
 
         public static void ResetInternalCaches()

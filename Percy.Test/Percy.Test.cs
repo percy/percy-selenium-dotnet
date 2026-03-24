@@ -342,45 +342,6 @@ namespace PercyIO.Selenium.Tests
             Percy.Enabled = oldEnabledFn;
         }
     }
-    public class InputValidationTests : IClassFixture<TestsFixture>
-    {
-        public readonly FirefoxDriver driver;
-
-        public InputValidationTests(TestsFixture fixture)
-        {
-            driver = fixture.driver;
-        }
-
-        [Fact]
-        public void SnapshotThrowsOnNullName()
-        {
-            var ex = Assert.Throws<ArgumentException>(() => Percy.Snapshot(driver, null));
-            Assert.Contains("Snapshot name must not be null or empty", ex.Message);
-        }
-
-        [Fact]
-        public void SnapshotThrowsOnEmptyName()
-        {
-            var ex = Assert.Throws<ArgumentException>(() => Percy.Snapshot(driver, ""));
-            Assert.Contains("Snapshot name must not be null or empty", ex.Message);
-        }
-
-        [Fact]
-        public void SnapshotThrowsOnWhitespaceName()
-        {
-            var ex = Assert.Throws<ArgumentException>(() => Percy.Snapshot(driver, "   "));
-            Assert.Contains("Snapshot name must not be null or empty", ex.Message);
-        }
-
-        [Fact]
-        public void SnapshotThrowsOnExcessivelyLongName()
-        {
-            string longName = new string('x', 4097);
-            var ex = Assert.Throws<ArgumentException>(() => Percy.Snapshot(driver, longName));
-            Assert.Contains("must not exceed 4096 characters", ex.Message);
-        }
-    }
-
     public class RegionTests
     {
         [Fact]
@@ -394,7 +355,7 @@ namespace PercyIO.Selenium.Tests
                 right = 5,
                 bottom = 10
             };
-
+            
             var boundingBox = new Percy.Region.RegionBoundingBox
             {
                 top = 0,
@@ -402,13 +363,13 @@ namespace PercyIO.Selenium.Tests
                 width = 100,
                 height = 100
             };
-
+            
             var diffSensitivity = 5;
             var imageIgnoreThreshold = 0.8;
             var carouselsEnabled = true;
             var algorithm = "intelliignore";
             var diffIgnoreThreshold = 0.5;
-
+            
             // Act
             var region = Percy.CreateRegion(
                 padding: customPadding,
@@ -427,7 +388,7 @@ namespace PercyIO.Selenium.Tests
             Assert.Equal(customPadding.left, region.padding.left);
             Assert.Equal(customPadding.right, region.padding.right);
             Assert.Equal(customPadding.bottom, region.padding.bottom);
-
+            
             // Validate ElementSelector
             Assert.NotNull(region.elementSelector);
             Assert.NotNull(region.elementSelector.boundingBox);
@@ -435,59 +396,19 @@ namespace PercyIO.Selenium.Tests
             Assert.Equal(boundingBox.left, region.elementSelector.boundingBox.left);
             Assert.Equal(boundingBox.width, region.elementSelector.boundingBox.width);
             Assert.Equal(boundingBox.height, region.elementSelector.boundingBox.height);
-
+            
             // Validate Algorithm
             Assert.Equal(algorithm, region.algorithm);
-
+            
             // Validate Configuration
             Assert.NotNull(region.configuration);
             Assert.Equal(diffSensitivity, region.configuration.diffSensitivity);
             Assert.Equal(imageIgnoreThreshold, region.configuration.imageIgnoreThreshold);
             Assert.Equal(carouselsEnabled, region.configuration.carouselsEnabled);
-
+            
             // Validate Assertion
             Assert.NotNull(region.assertion);
             Assert.Equal(diffIgnoreThreshold, region.assertion.diffIgnoreThreshold);
-        }
-
-        [Fact]
-        public void CreateRegion_ThrowsOnInvalidAlgorithm()
-        {
-            var box = new Percy.Region.RegionBoundingBox { top = 0, left = 0, width = 10, height = 10 };
-            var ex = Assert.Throws<ArgumentException>(() =>
-                Percy.CreateRegion(boundingBox: box, algorithm: "invalid_algo"));
-            Assert.Contains("Invalid algorithm", ex.Message);
-        }
-
-        [Fact]
-        public void CreateRegion_ThrowsWhenNoSelectorProvided()
-        {
-            var ex = Assert.Throws<ArgumentException>(() =>
-                Percy.CreateRegion(algorithm: "ignore"));
-            Assert.Contains("At least one element selector must be provided", ex.Message);
-        }
-
-        [Fact]
-        public void CreateRegion_ThrowsOnNegativeBoundingBoxDimensions()
-        {
-            var box = new Percy.Region.RegionBoundingBox { top = 0, left = 0, width = -10, height = 10 };
-            var ex = Assert.Throws<ArgumentException>(() =>
-                Percy.CreateRegion(boundingBox: box));
-            Assert.Contains("must not be negative", ex.Message);
-        }
-
-        [Fact]
-        public void CreateRegion_AcceptsXpathSelector()
-        {
-            var region = Percy.CreateRegion(elementXpath: "//div[@id='test']");
-            Assert.Equal("//div[@id='test']", region.elementSelector.elementXpath);
-        }
-
-        [Fact]
-        public void CreateRegion_AcceptsCssSelector()
-        {
-            var region = Percy.CreateRegion(elementCSS: ".my-class");
-            Assert.Equal(".my-class", region.elementSelector.elementCSS);
         }
     }
 }
