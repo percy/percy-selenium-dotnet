@@ -588,7 +588,8 @@ namespace PercyIO.Selenium
                 return currentHeight;
             }
 
-            return CalculateTargetHeight(driver, minHeight.Value, currentHeight);
+            Log($"Using minHeight: {minHeight.Value} as target height", "debug");
+            return minHeight.Value;
         }
 
         private static int? ResolveConfiguredMinHeight(Dictionary<string, object> options)
@@ -642,32 +643,6 @@ namespace PercyIO.Selenium
             }
 
             return null;
-        }
-
-        private static int CalculateTargetHeight(WebDriver driver, int minHeight, int fallbackHeight)
-        {
-            try
-            {
-                object result = driver.ExecuteScript($"return window.outerHeight - window.innerHeight + {minHeight}");
-                if (result is long longValue)
-                {
-                    return (int)longValue;
-                }
-                if (result is int intValue)
-                {
-                    return intValue;
-                }
-                if (result is double doubleValue)
-                {
-                    return (int)doubleValue;
-                }
-                return fallbackHeight;
-            }
-            catch (Exception e)
-            {
-                Log($"Error calculating target height: {e.Message}", "debug");
-                return fallbackHeight;
-            }
         }
 
         public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
