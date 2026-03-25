@@ -75,6 +75,7 @@ namespace PercyIO.Selenium
             }
         }
 
+        private static readonly object _httpLock = new object();
         private static HttpClient? _http;
 
         private static string? sessionType = null;
@@ -83,7 +84,7 @@ namespace PercyIO.Selenium
 
         private static string PayloadParser(object? payload = null, bool alreadyJson = false)
         {
-            if (alreadyJson) 
+            if (alreadyJson)
             {
                 return payload is null ? "" : payload.ToString();
             }
@@ -97,10 +98,15 @@ namespace PercyIO.Selenium
 
         internal static HttpClient getHttpClient() {
             if (_http == null) {
-                setHttpClient(new HttpClient());
-                _http.Timeout = TimeSpan.FromMinutes(10);
+                lock (_httpLock) {
+                    if (_http == null) {
+                        var client = new HttpClient();
+                        client.Timeout = TimeSpan.FromMinutes(10);
+                        _http = client;
+                    }
+                }
             }
-            
+
             return _http;
         }
 
@@ -374,8 +380,7 @@ namespace PercyIO.Selenium
                 }
                 catch (Exception err)
                 {
-                    throw new Exception(
-                        $"Fatal: could not exit iframe context after processing \"{frameUrl}\". Driver may be unstable.", err);
+                    Log($"Fatal: could not exit iframe context after processing \"{frameUrl}\". Driver may be unstable. {err.Message}", "error");
                 }
             }
 
@@ -708,15 +713,35 @@ namespace PercyIO.Selenium
             return domSnapshots;
         }
 
-        private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options) 
+        private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options)
         {
-            JsonElement config = (JsonElement) cliConfig;
-            if (config.GetProperty("percy").TryGetProperty("deferUploads", out JsonElement deferUploadsProperty)) {
-                if (deferUploadsProperty.GetBoolean()) { return false; }
-            }
+            if (cliConfig == null) return false;
 
-            return (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"] ||
-                    config.GetProperty("snapshot").GetProperty("responsiveSnapshotCapture").GetBoolean());
+            try
+            {
+                JsonElement config = (JsonElement) cliConfig;
+                if (config.TryGetProperty("percy", out JsonElement percyElement) &&
+                    percyElement.TryGetProperty("deferUploads", out JsonElement deferUploadsProperty) &&
+                    deferUploadsProperty.GetBoolean())
+                {
+                    return false;
+                }
+
+                if (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"])
+                    return true;
+
+                if (config.TryGetProperty("snapshot", out JsonElement snapshotElement) &&
+                    snapshotElement.TryGetProperty("responsiveSnapshotCapture", out JsonElement responsiveElement))
+                {
+                    return responsiveElement.GetBoolean();
+                }
+
+                return false;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         public class Options : Dictionary<string, object> {}
@@ -733,6 +758,10 @@ namespace PercyIO.Selenium
             {
                 if ((bool) driver.ExecuteScript("return !!window.PercyDOM") == false)
                     driver.ExecuteScript(GetPercyDOM());
+
+                // Ensure _dom is populated for CORS iframe processing
+                if (_dom == null)
+                    _dom = GetPercyDOM();
 
                 var cookies = driver.Manage().Cookies.AllCookies;
                 string opts = JsonSerializer.Serialize(options);
@@ -776,7 +805,7 @@ namespace PercyIO.Selenium
 
         public static JObject? Screenshot(WebDriver driver, string name, Dictionary<string, object>? options = null)
         {
-            PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
+            PercyDriver percyDriver = new PercyDriver(driver);
             return percyDriver.Screenshot(name, options);
         }
 
@@ -884,6 +913,9 @@ namespace PercyIO.Selenium
         {
             _enabled = null;
             _dom = null;
+            sessionType = null;
+            eligibleWidths = null;
+            cliConfig = null;
         }
     }
 

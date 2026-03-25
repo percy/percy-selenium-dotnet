@@ -8,20 +8,12 @@ namespace PercyIO.Selenium
 {
  internal class PercySeleniumDriver : IPercySeleniumDriver
  {
-  private RemoteWebDriver _remoteDriver;
+  private WebDriver _driver;
 
-  internal PercySeleniumDriver(RemoteWebDriver driver)
+  internal PercySeleniumDriver(WebDriver driver)
   {
-    if(!isDriverValid(driver)) throw new Exception("Driver should be of type RemoteWebDriver");
-    this._remoteDriver = driver;
-  }
-
-  private bool isDriverValid(WebDriver driver)
-  {
-      return (bool) (
-          driver is RemoteWebDriver &&
-          driver.GetType().ToString().Contains("Selenium")
-      );
+    if(driver == null) throw new ArgumentNullException(nameof(driver));
+    this._driver = driver;
   }
 
   public String GetElementIdFromElement(IWebElement element)
@@ -31,19 +23,21 @@ namespace PercyIO.Selenium
     return elementId;
   } 
 
-  public RemoteWebDriver getRemoteWebDriver()
+  public WebDriver getWebDriver()
   {
-    return this._remoteDriver;
+    return this._driver;
   }
 
   public Dictionary<string, object> GetCapabilities()
   {
     var key = "caps_" + sessionId();
     if (PercyDriver.cache.Get(key) == null) {
-      object capabilities = this._remoteDriver.Capabilities;
+      var hasCapabilities = this._driver as IHasCapabilities;
+      if (hasCapabilities == null) return null;
+      object capabilities = hasCapabilities.Capabilities;
       var capabilitiesType = capabilities.GetType();
       var dictionaryField = capabilitiesType.GetField("capabilities", BindingFlags.NonPublic | BindingFlags.Instance);
-      
+
       if (dictionaryField != null){
         var capabilitiesDictionary = dictionaryField.GetValue(capabilities) as Dictionary<string, object>;
         if (capabilitiesDictionary != null){
@@ -51,7 +45,7 @@ namespace PercyIO.Selenium
         }
       }
     }
-    
+
     return PercyDriver.cache.Get(key) as Dictionary<string, object>;
   }
 
@@ -59,7 +53,9 @@ namespace PercyIO.Selenium
   {
     var key = "session_caps_" + sessionId();
     if (PercyDriver.cache.Get(key) == null) {
-      object session_caps  = this._remoteDriver.Capabilities;
+      var hasCapabilities = this._driver as IHasCapabilities;
+      if (hasCapabilities == null) return null;
+      object session_caps = hasCapabilities.Capabilities;
       PercyDriver.cache.Store(key, session_caps);
     }
     return (IDictionary<string, object>)PercyDriver.cache.Get(key);
@@ -67,17 +63,21 @@ namespace PercyIO.Selenium
 
   public String sessionId()
   {
-    return this._remoteDriver?.SessionId?.ToString()!;
+    var hasSessionId = this._driver as IHasSessionId;
+    return hasSessionId?.SessionId?.ToString()!;
   }
 
   public String GetHost()
   {
     var key = "command_executor_" + sessionId();
     if (PercyDriver.cache.Get(key) == null) {
-      HttpCommandExecutor executor = (HttpCommandExecutor)(this._remoteDriver).CommandExecutor;
-      FieldInfo remoteServerUriField = typeof(HttpCommandExecutor).GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
-      String commandExecutorUrl = remoteServerUriField.GetValue(executor).ToString();
-      PercyDriver.cache.Store(key, commandExecutorUrl);
+      var commandExecutor = this._driver.CommandExecutor;
+      if (commandExecutor is HttpCommandExecutor httpExecutor)
+      {
+        FieldInfo remoteServerUriField = typeof(HttpCommandExecutor).GetField("remoteServerUri", BindingFlags.NonPublic | BindingFlags.Instance);
+        String commandExecutorUrl = remoteServerUriField.GetValue(httpExecutor).ToString();
+        PercyDriver.cache.Store(key, commandExecutorUrl);
+      }
     }
     return (String)PercyDriver.cache.Get(key);
   }

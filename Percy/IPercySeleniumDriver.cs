@@ -11,6 +11,6 @@ namespace PercyIO.Selenium
     String sessionId();
     String GetElementIdFromElement(IWebElement element);
     String GetHost();
-    RemoteWebDriver getRemoteWebDriver();
+    WebDriver getWebDriver();
   }
 }

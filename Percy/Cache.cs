@@ -1,10 +1,10 @@
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 
 namespace PercyIO.Selenium
 {
   public class Cache<TKey, TValue>
   {
-    private readonly Dictionary<TKey, CacheItem<TValue>> _cache = new Dictionary<TKey, CacheItem<TValue>>();
+    private readonly ConcurrentDictionary<TKey, CacheItem<TValue>> _cache = new ConcurrentDictionary<TKey, CacheItem<TValue>>();
 
     public void Store(TKey key, TValue value)
     {
@@ -13,14 +13,13 @@ namespace PercyIO.Selenium
 
     public TValue Get(TKey key)
     {
-      if (!_cache.ContainsKey(key)) return default(TValue);
-      var cached = _cache[key];
+      if (!_cache.TryGetValue(key, out var cached)) return default(TValue);
       return cached.Value;
     }
 
     public void Remove(TKey key)
     {
-      _cache.Remove(key);
+      _cache.TryRemove(key, out _);
     }
 
     public void Clear()
