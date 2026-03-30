@@ -26,10 +26,18 @@ namespace PercyIO.Selenium
         public static readonly string CLI_API =
             Environment.GetEnvironmentVariable("PERCY_CLI_API") ?? "http://localhost:5338";
         
-        public static readonly string RESONSIVE_CAPTURE_SLEEP_TIME =
-             Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
+        public static readonly string RESPONSIVE_CAPTURE_SLEEP_TIME =
+             Environment.GetEnvironmentVariable("RESPONSIVE_CAPTURE_SLEEP_TIME")
+             ?? Environment.GetEnvironmentVariable("RESONSIVE_CAPTURE_SLEEP_TIME");
+        public static readonly bool PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE =
+            (Environment.GetEnvironmentVariable("PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE") ?? "")
+                .Equals("true", StringComparison.OrdinalIgnoreCase);
+        public static readonly bool PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT =
+            (Environment.GetEnvironmentVariable("PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT") ?? "")
+                .Equals("true", StringComparison.OrdinalIgnoreCase);
         public static readonly string CLIENT_INFO =
             typeof(Percy).Assembly.GetCustomAttribute<ClientInfoAttribute>().ClientInfo;
+        
         public static readonly string ENVIRONMENT_INFO = Regex.Replace(
             Regex.Replace(RuntimeInformation.FrameworkDescription, @"\s+", "-"),
             @"-([\d\.]+).*$", "/$1").Trim().ToLower();
@@ -67,6 +75,7 @@ namespace PercyIO.Selenium
             }
         }
 
+        private static readonly object _httpLock = new object();
         private static HttpClient? _http;
 
         private static string? sessionType = null;
@@ -75,7 +84,7 @@ namespace PercyIO.Selenium
 
         private static string PayloadParser(object? payload = null, bool alreadyJson = false)
         {
-            if (alreadyJson) 
+            if (alreadyJson)
             {
                 return payload is null ? "" : payload.ToString();
             }
@@ -89,10 +98,15 @@ namespace PercyIO.Selenium
 
         internal static HttpClient getHttpClient() {
             if (_http == null) {
-                setHttpClient(new HttpClient());
-                _http.Timeout = TimeSpan.FromMinutes(10);
+                lock (_httpLock) {
+                    if (_http == null) {
+                        var client = new HttpClient();
+                        client.Timeout = TimeSpan.FromMinutes(10);
+                        _http = client;
+                    }
+                }
             }
-            
+
             return _http;
         }
 
@@ -298,58 +312,205 @@ namespace PercyIO.Selenium
 
             return region;
         }
-        private static dynamic getSerializedDom(WebDriver driver, object cookies, Dictionary<string, object>? options) {
+        private static bool IsUnsupportedIframeSrc(string? src)
+        {
+            return string.IsNullOrEmpty(src) ||
+                    src.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase) ||
+                    src.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+                    src.StartsWith("vbscript:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string GetOrigin(string url)
+        {
+            try
+            {
+                Uri uri = new Uri(url);
+                return $"{uri.Scheme}://{uri.Authority}";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private static Dictionary<string, object>? ProcessFrame(
+            WebDriver driver,
+            IWebElement frameElement,
+            Dictionary<string, object>? options,
+            string domJs)
+        {
+            // Read attributes while still in parent context — these calls will
+            // fail if made after switchTo().frame().
+            string? frameUrl = frameElement.GetAttribute("src") ?? "unknown-src";
+            Log($"processFrame: checking iframe src=\"{frameUrl}\"", "debug");
+
+            string? percyElementId = frameElement.GetAttribute("data-percy-element-id");
+            Log($"processFrame: data-percy-element-id=\"{percyElementId}\" for src=\"{frameUrl}\"", "debug");
+            if (string.IsNullOrEmpty(percyElementId))
+            {
+                Log($"Skipping frame {frameUrl}: no matching percyElementId found", "debug");
+                return null;
+            }
+
+            Dictionary<string, object>? iframeSnapshot = null;
+            try
+            {
+                driver.SwitchTo().Frame(frameElement);
+                // Inject Percy DOM into the cross-origin frame context
+                driver.ExecuteScript(domJs);
+                // Serialize inside the frame; enableJavaScript=true is required for CORS iframes
+                var iframeOptions = options != null
+                    ? new Dictionary<string, object>(options)
+                    : new Dictionary<string, object>();
+                iframeOptions["enableJavaScript"] = true;
+                var iframeOpts = JsonSerializer.Serialize(iframeOptions);
+                iframeSnapshot = (Dictionary<string, object>)driver.ExecuteScript(
+                    $"return PercyDOM.serialize({iframeOpts})");
+            }
+            catch (Exception e)
+            {
+                Log($"Failed to process cross-origin frame {frameUrl}: {e.Message}", "error");
+                throw new Exception($"Failed to process cross-origin frame {frameUrl}", e);
+            }
+            finally
+            {
+                try
+                {
+                    driver.SwitchTo().DefaultContent();
+                }
+                catch (Exception err)
+                {
+                    Log($"Fatal: could not exit iframe context after processing \"{frameUrl}\". Driver may be unstable. {err.Message}", "error");
+                }
+            }
+
+            return new Dictionary<string, object>
+            {
+                { "iframeData", new Dictionary<string, object> { { "percyElementId", percyElementId } } },
+                { "iframeSnapshot", iframeSnapshot },
+                { "frameUrl", frameUrl }
+            };
+        }
+
+        private static dynamic getSerializedDom(
+            WebDriver driver,
+            object cookies,
+            Dictionary<string, object>? options,
+            string? domJs = null)
+        {
             var opts = JsonSerializer.Serialize(options);
             string script = $"return PercyDOM.serialize({opts})";
             var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
             domSnapshot["cookies"] = cookies;
+
+            // Process CORS iframes when DOM script is available
+            if (!string.IsNullOrEmpty(domJs))
+            {
+                try
+                {
+                    string pageOrigin = GetOrigin(driver.Url);
+                    var iframes = driver.FindElements(By.TagName("iframe"));
+                    if (iframes.Count > 0)
+                    {
+                        var processedFrames = new List<Dictionary<string, object>>();
+                        foreach (IWebElement frame in iframes)
+                        {
+                            string? frameSrc = frame.GetAttribute("src");
+                            if (IsUnsupportedIframeSrc(frameSrc))
+                                continue;
+
+                            string frameOrigin;
+                            try
+                            {
+                                Uri baseUri = new Uri(driver.Url);
+                                Uri resolvedUri = new Uri(baseUri, frameSrc);
+                                frameOrigin = GetOrigin(resolvedUri.ToString());
+                            }
+                            catch (Exception e)
+                            {
+                                Log($"Skipping iframe \"{frameSrc}\": {e.Message}", "debug");
+                                continue;
+                            }
+
+                            if (frameOrigin == pageOrigin)
+                                continue;
+
+                            try
+                            {
+                                var result = ProcessFrame(driver, frame, options, domJs);
+                                if (result != null)
+                                    processedFrames.Add(result);
+                            }
+                            catch (Exception e)
+                            {
+                                Log($"Skipping frame \"{frameSrc}\" due to error: {e.Message}", "debug");
+                                if (e.Message.Contains("Fatal"))
+                                    throw;
+                            }
+                        }
+                        if (processedFrames.Count > 0)
+                            domSnapshot["corsIframes"] = processedFrames;
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log($"Failed to process cross-origin iframes: {e.Message}", "debug");
+                    if (e.Message.Contains("Fatal"))
+                        throw;
+                }
+            }
+
             return domSnapshot;
         }
 
-        private static List<int> GetWidthsForMultiDom(int[] widths)
+        private static bool IsChromeBrowser(WebDriver driver)
         {
-            var fetchedWidthsElement = (JsonElement)eligibleWidths;
-            var allWidths = fetchedWidthsElement.GetProperty("mobile")
-                                            .EnumerateArray()
-                                            .Select(x => x.GetInt32())
-                                            .ToList();
-
-            if (widths.Length != 0)
+            if (driver is ChromeDriver)
             {
-                allWidths.AddRange(widths);
-            }
-            else
-            {
-                allWidths.AddRange(fetchedWidthsElement.GetProperty("config")
-                                                .EnumerateArray()
-                                                .Select(x => x.GetInt32()));
+                return true;
             }
 
-            return allWidths.Distinct().ToList();
+            if (driver is IHasCapabilities hasCapabilities)
+            {
+                object? browserName = hasCapabilities.Capabilities?.GetCapability("browserName");
+                return browserName?.ToString()?.Equals("chrome", StringComparison.OrdinalIgnoreCase) == true;
+            }
+
+            return false;
         }
 
-        // Method to check if ChromeDriver supports CDP by checking the existence of ExecuteCdpCommand
-        private static bool IsCdpSupported(ChromeDriver chromeDriver)
+        private static bool TryResizeWithCdp(WebDriver driver, int width, int height)
         {
-            return chromeDriver.GetType().GetMethod("ExecuteCdpCommand") != null;
+            if (!IsChromeBrowser(driver))
+            {
+                return false;
+            }
+
+            MethodInfo? executeCdpMethod = driver.GetType().GetMethod("ExecuteCdpCommand", new[] { typeof(string), typeof(Dictionary<string, object>) });
+            if (executeCdpMethod == null)
+            {
+                return false;
+            }
+
+            var commandParams = new Dictionary<string, object>
+            {
+                { "width", width },
+                { "height", height },
+                { "deviceScaleFactor", 1 },
+                { "mobile", false }
+            };
+
+            executeCdpMethod.Invoke(driver, new object[] { "Emulation.setDeviceMetricsOverride", commandParams });
+            return true;
         }
 
         private static void ChangeWindowDimensionAndWait(WebDriver driver, int width, int height, int resizeCount)
         {
             try
             {
-                // Check if the driver is ChromeDriver and supports CDP
-                if (driver is ChromeDriver chromeDriver && IsCdpSupported(chromeDriver))
+                if (TryResizeWithCdp(driver, width, height))
                 {
-                    var commandParams = new Dictionary<string, object>
-                    {
-                        { "width", width },
-                        { "height", height },
-                        { "deviceScaleFactor", 1 },
-                        { "mobile", false }
-                    };
-
-                    chromeDriver.ExecuteCdpCommand("Emulation.setDeviceMetricsOverride", commandParams);
+                    Log($"Attempting to resize using CDP for width {width} and height {height}", "debug");
                 }
                 else
                 {
@@ -361,7 +522,6 @@ namespace PercyIO.Selenium
                 Log($"Resizing using CDP failed, falling back to driver for width {width}: {e.Message}", "debug");
                 driver.Manage().Window.Size = new System.Drawing.Size(width, height);
             }
-
             // Wait for window resize event using WebDriverWait
             try
             {
@@ -374,10 +534,127 @@ namespace PercyIO.Selenium
             }
         }
 
+        private class ResponsiveWidth
+        {
+            public int width { get; set; }
+            public int? height { get; set; }
+        }
+        private static List<ResponsiveWidth> GetResponsiveWidths(List<int>? widths = null)
+        {
+            widths ??= new List<int>();
+
+            try
+            {
+                string queryParam = widths.Count > 0 ? $"?widths={string.Join(",", widths)}" : "";
+                dynamic res = Request($"/percy/widths-config{queryParam}");
+                var data = JsonSerializer.Deserialize<JsonElement>(res.content);
+
+                if (!data.TryGetProperty("widths", out JsonElement widthsElement) || widthsElement.ValueKind != JsonValueKind.Array)
+                {
+                    Log("Update Percy CLI to the latest version to use responsiveSnapshotCapture", "error");
+                    throw new Exception("Update Percy CLI to the latest version to use responsiveSnapshotCapture");
+                }
+
+                return widthsElement.EnumerateArray().Select(widthItem =>
+                {
+                    if (widthItem.ValueKind == JsonValueKind.Number)
+                    {
+                        return new ResponsiveWidth { width = widthItem.GetInt32() };
+                    }
+
+                    int width = widthItem.GetProperty("width").GetInt32();
+                    int? height = null;
+                    if (widthItem.TryGetProperty("height", out JsonElement heightElement) && heightElement.ValueKind == JsonValueKind.Number)
+                    {
+                        height = heightElement.GetInt32();
+                    }
+
+                    return new ResponsiveWidth { width = width, height = height };
+                }).ToList();
+            }
+            catch (Exception error)
+            {
+                Log($"Failed to get responsive widths: {error}", "debug");
+                throw new Exception("Update Percy CLI to the latest version to use responsiveSnapshotCapture", error);
+            }
+        }
+        private static int ResolveResponsiveTargetHeight(WebDriver driver, Dictionary<string, object> options, int currentHeight)
+        {
+            if (!PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT)
+            {
+                Log($"PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT is disabled, using current window height: {currentHeight}", "debug");
+                return currentHeight;
+            }
+
+            int? minHeight = ResolveConfiguredMinHeight(options);
+            if (minHeight == null)
+            {
+                Log($"minHeight not found in options or cliConfig, using current window height: {currentHeight}", "debug");
+                return currentHeight;
+            }
+
+            Log($"Using minHeight: {minHeight.Value} as target height", "debug");
+            return minHeight.Value;
+        }
+
+        private static int? ResolveConfiguredMinHeight(Dictionary<string, object> options)
+        {
+            object? minHeightObj = null;
+            
+            if (options != null && options.ContainsKey("minHeight"))
+            {
+                minHeightObj = options["minHeight"];
+            }
+            else if (cliConfig != null)
+            {
+                try
+                {
+                    JsonElement config = (JsonElement)cliConfig;
+                    if (config.TryGetProperty("snapshot", out JsonElement snapshotElement))
+                    {
+                        if (snapshotElement.TryGetProperty("minHeight", out JsonElement minHeightElement))
+                        {
+                            minHeightObj = minHeightElement.GetInt32();
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Log($"Error reading minHeight from cliConfig: {e.Message}", "debug");
+                    return null;
+                }
+            }
+
+            if (minHeightObj == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                if (minHeightObj is int intValue)
+                {
+                    return intValue;
+                }
+                if (int.TryParse(minHeightObj.ToString(), out int parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+            catch (FormatException e)
+            {
+                Log($"Invalid minHeight value {minHeightObj}; expected integer, using current window height instead. {e.Message}", "debug");
+                return null;
+            }
+
+            return null;
+        }
+
         public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
         {
             List<int> widths = options != null && options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
-            widths = GetWidthsForMultiDom(widths.ToArray());
+            List<ResponsiveWidth> widthHeights = GetResponsiveWidths(widths);
+
             var domSnapshots = new List<Dictionary<string, object>>();
 
             var windowSize = driver.Manage().Window.Size;
@@ -387,18 +664,46 @@ namespace PercyIO.Selenium
             int resizeCount = 0;
             int sleepTime = 0;
             driver.ExecuteScript("PercyDOM.waitForResize()");
+            int targetHeight = ResolveResponsiveTargetHeight(driver, options, currentHeight);
 
-            foreach (int width in widths)
+             if (_dom == null)
+             {
+                 _dom = GetPercyDOM();
+             }
+
+            foreach (ResponsiveWidth widthHeight in widthHeights)
             {
+                int width = widthHeight.width;
+                int? height = widthHeight.height;
+                int heightForWidth = height.HasValue ? height.Value : targetHeight;
+
                 if (lastWindowWidth != width) {
                     resizeCount++;
-                    ChangeWindowDimensionAndWait(driver, width, currentHeight, resizeCount);
+                    ChangeWindowDimensionAndWait(driver, width, heightForWidth, resizeCount);
                     lastWindowWidth = width;
                 }
-                if (Int32.TryParse(RESONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
+
+                if (PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE)
+                {
+                    try
+                    {
+                        driver.Navigate().Refresh();
+                        if ((bool)driver.ExecuteScript("return !!window.PercyDOM") == false)
+                        {
+                            driver.ExecuteScript(GetPercyDOM());
+                        }
+                        driver.ExecuteScript("PercyDOM.waitForResize()");
+                        resizeCount = 0;
+                    }
+                    catch (Exception error)
+                    {
+                        Log($"Page reload failed during responsive capture for width {width}: {error.Message}", "debug");
+                    }
+                }
+                if (Int32.TryParse(RESPONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
-                var domSnapshot =  getSerializedDom(driver, cookies, options);
+                var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);
                 domSnapshot["width"] = width;
                 domSnapshots.Add(domSnapshot);
             }
@@ -408,15 +713,35 @@ namespace PercyIO.Selenium
             return domSnapshots;
         }
 
-        private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options) 
+        private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options)
         {
-            JsonElement config = (JsonElement) cliConfig;
-            if (config.GetProperty("percy").TryGetProperty("deferUploads", out JsonElement deferUploadsProperty)) {
-                if (deferUploadsProperty.GetBoolean()) { return false; }
-            }
+            if (cliConfig == null) return false;
 
-            return (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"] ||
-                    config.GetProperty("snapshot").GetProperty("responsiveSnapshotCapture").GetBoolean());
+            try
+            {
+                JsonElement config = (JsonElement) cliConfig;
+                if (config.TryGetProperty("percy", out JsonElement percyElement) &&
+                    percyElement.TryGetProperty("deferUploads", out JsonElement deferUploadsProperty) &&
+                    deferUploadsProperty.GetBoolean())
+                {
+                    return false;
+                }
+
+                if (options != null && options.ContainsKey("responsiveSnapshotCapture") && (bool)options["responsiveSnapshotCapture"])
+                    return true;
+
+                if (config.TryGetProperty("snapshot", out JsonElement snapshotElement) &&
+                    snapshotElement.TryGetProperty("responsiveSnapshotCapture", out JsonElement responsiveElement))
+                {
+                    return responsiveElement.GetBoolean();
+                }
+
+                return false;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         public class Options : Dictionary<string, object> {}
@@ -434,6 +759,10 @@ namespace PercyIO.Selenium
                 if ((bool) driver.ExecuteScript("return !!window.PercyDOM") == false)
                     driver.ExecuteScript(GetPercyDOM());
 
+                // Ensure _dom is populated for CORS iframe processing
+                if (_dom == null)
+                    _dom = GetPercyDOM();
+
                 var cookies = driver.Manage().Cookies.AllCookies;
                 string opts = JsonSerializer.Serialize(options);
                 dynamic domSnapshot = null;
@@ -441,7 +770,7 @@ namespace PercyIO.Selenium
                 if (isResponsiveSnapshotCapture(options)) {
                     domSnapshot = CaptureResponsiveDom(driver, cookies, options);
                 } else {
-                    domSnapshot = getSerializedDom(driver, cookies, options);
+                    domSnapshot = getSerializedDom(driver, cookies, options, _dom);
                 }
 
                 Options snapshotOptions = new Options {
@@ -476,7 +805,7 @@ namespace PercyIO.Selenium
 
         public static JObject? Screenshot(WebDriver driver, string name, Dictionary<string, object>? options = null)
         {
-            PercyDriver percyDriver = new PercyDriver((RemoteWebDriver)driver);
+            PercyDriver percyDriver = new PercyDriver(driver);
             return percyDriver.Screenshot(name, options);
         }
 
@@ -584,6 +913,9 @@ namespace PercyIO.Selenium
         {
             _enabled = null;
             _dom = null;
+            sessionType = null;
+            eligibleWidths = null;
+            cliConfig = null;
         }
     }
 

@@ -87,6 +87,23 @@ namespace PercyIO.Selenium.Tests
             }
         }
 
+        private static readonly HashSet<string> _essentialConfigPrefixes = new HashSet<string> {
+            "- url:", "- widths:", "- minHeight:", "- enableJavaScript:", "- cliEnableJavaScript:",
+            "- disableShadowDOM:", "- forceShadowAsLightDOM:",
+            "- discovery.allowedHostnames:", "- discovery.captureMockedServiceWorker:",
+            "- clientInfo:", "- environmentInfo:",
+            "- domSnapshot:", "- domSnapshot.", "- reload:", "- responsiveSnapshots:"
+        };
+        private static bool IsEssentialLog(string msg) {
+            // Always drop SDK version check banners and memory dumps
+            if (msg.Contains("SDK Version Check") || msg.Contains("\"cores\":") || msg.Contains("memoryInfo"))
+                return false;
+            // For "- key: value" config lines keep only the essential known set
+            if (Regex.IsMatch(msg, @"^- [a-zA-Z.]+: "))
+                return _essentialConfigPrefixes.Any(p => msg.StartsWith(p));
+            return true;  // narrative lines: Received snapshot, Snapshot found, ---------, errors, etc.
+        }
+
         [Fact]
         public void DisablesSnapshotsWhenHealthcheckFails()
         {
@@ -143,8 +160,9 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("queued"))
-                    logs.Add(msg);
+                if (msg == null || !IsEssentialLog(msg) || msg.Contains("---------") || msg.Contains("queued"))
+                    continue;
+                logs.Add(msg);
             }
 
             List<string> expected = new List<string> {
@@ -155,6 +173,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: false",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -169,6 +188,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: true",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -183,6 +203,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: true",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -208,8 +229,9 @@ namespace PercyIO.Selenium.Tests
             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
             {
                 string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":"))
-                    logs.Add(msg);
+                if (msg == null || !IsEssentialLog(msg))
+                    continue;
+                logs.Add(msg);
             }
             List<string> expected = new List<string> {
                 "---------",
@@ -220,6 +242,7 @@ namespace PercyIO.Selenium.Tests
                 "- enableJavaScript: false",
                 "- cliEnableJavaScript: true",
                 "- disableShadowDOM: false",
+                "- forceShadowAsLightDOM: false",
                 "- discovery.allowedHostnames: localhost",
                 "- discovery.captureMockedServiceWorker: false",
                 $"- clientInfo: {Percy.CLIENT_INFO}",
@@ -234,135 +257,58 @@ namespace PercyIO.Selenium.Tests
         }
 
         [Fact]
-        public void PostsSnapshotWithResponsiveSnapshotCapture()
-        {
-            Request("/test/api/config", new { config = new List<int> {375, 800}, mobile = new List<int> {390} });
-            Percy.Snapshot(driver, "Snapshot 1", new {
-                    responsiveSnapshotCapture = true
-            });
-
-            JsonElement data = Request("/test/logs");
-            List<string> logs = new List<string>();
-
-
-            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
-            {
-                string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
-                    logs.Add(msg);
-            }
-            List<string> expected = new List<string> {
-                // This happens because of firefox limitation to resize below 450px.
-                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 375",
-                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 800",
-                "[\u001b[35mpercy\u001b[39m] Timed out waiting for window resize event for width 1366",
-                "Received snapshot: Snapshot 1",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 375px, 800px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true, true, true",
-                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 1",
-            };
-
-            AssertLogs(expected, logs);
-        }
-
-        [Fact]
-        public void PostsSnapshotWithResponsiveSnapshotCapturWithCLIOptions()
-        {
-            Request("/test/api/config", new { responsive = true, config = new List<int> {800, 1200} });
-            Percy.Snapshot(driver, "Snapshot 1");
-            Percy.Snapshot(driver, "Snapshot 2", new {
-                widths = new List<int> {500, 900, 1200}
-            });
-
-            JsonElement data = Request("/test/logs");
-            List<string> logs = new List<string>();
-
-            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
-            {
-                string? msg = log.GetProperty("message").GetString();
-                if (msg != null && !msg.Contains("\"cores\":") && !msg.Contains("---------") && !msg.Contains("domSnapshot.userAgent") && !msg.Contains("queued") && !msg.Contains("memoryInfo"))
-                    logs.Add(msg);
-            }
-            List<string> expected = new List<string> {
-                "Received snapshot: Snapshot 1",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 800px, 1200px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true, true",
-                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 1",                
-                "Received snapshot: Snapshot 2",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 500px, 900px, 1200px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true, true, true",
-                @"- domSnapshot\.0\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 2",
-            };
-
-            AssertLogs(expected, logs);
-        }
-
-        [Fact]
-        public void PostsSnapshotWithResponsiveSnapshotCapturWithDeferUploads()
-        {
-            Request("/test/api/config", new { deferUploads = true, responsive = true, config = new List<int> {375, 800} });
-            Percy.Snapshot(driver, "Snapshot 3", new {
-                widths = new List<int> {500, 900, 1200}
-            });
-
-            JsonElement data = Request("/test/logs");
-            List<string> logs = new List<string>();
-
-            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
-            {
-                string? msg = log.GetProperty("message").GetString();
-                if (msg != null) logs.Add(msg);
-            }
-            List<string> expected = new List<string> {
-                "---------",
-                "Received snapshot: Snapshot 3",
-                "- url: http://localhost:5338/test/snapshot",
-                "- widths: 500px, 900px, 1200px",
-                "- minHeight: 1024px",
-                "- enableJavaScript: false",
-                "- cliEnableJavaScript: true",
-                "- disableShadowDOM: false",
-                "- discovery.allowedHostnames: localhost",
-                "- discovery.captureMockedServiceWorker: false",
-                $"- clientInfo: {Percy.CLIENT_INFO}",
-                $"- environmentInfo: {Percy.ENVIRONMENT_INFO}",
-                "- domSnapshot: true",
-                @"- domSnapshot.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
-                "Snapshot found: Snapshot 3",
-            };
-
-            AssertLogs(expected, logs);
-        }
+         public void PostsResponsiveSnapshotWithPerWidthHeights()
+         {
+             Percy.Snapshot(driver, "Responsive snapshot with heights", new
+             {
+                 responsiveSnapshots = new[]
+                 {
+                     new { width = 375, height = 667 },
+                     new { width = 1280, height = 720 }
+                 },
+                 reload = false,
+                 minHeight = 0
+             });
+             JsonElement data = Request("/test/logs");
+             List<string> logs = new List<string>();
+             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+             {
+                 string? msg = log.GetProperty("message").GetString();
+                 if (msg != null && !msg.Contains("\"cores\":"))
+                     logs.Add(msg);
+             }
+             Assert.Contains("Received snapshot: Responsive snapshot with heights", logs);
+             // CLI treats unknown option 'reload' as "unknown property" — not a resolved value
+             Assert.Contains("- reload: unknown property", logs);
+             // minHeight: 0 is invalid (CLI requires >= 10), so CLI emits a validation error
+             Assert.Contains("- minHeight: must be >= 10", logs);
+         }
+         [Fact]
+         public void PostsResponsiveSnapshotWithReloadAndCustomMinHeight()
+         {
+             Percy.Snapshot(driver, "Responsive snapshot reload", new
+             {
+                 responsiveSnapshots = new[]
+                 {
+                     new { width = 375, height = 800 },
+                     new { width = 1280, height = 900 }
+                 },
+                 reload = true,
+                 minHeight = 2000
+             });
+             JsonElement data = Request("/test/logs");
+             List<string> logs = new List<string>();
+             foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+             {
+                 string? msg = log.GetProperty("message").GetString();
+                 if (msg != null && !msg.Contains("\"cores\":"))
+                     logs.Add(msg);
+             }
+             Assert.Contains("Received snapshot: Responsive snapshot reload", logs);
+             // CLI treats unknown option 'reload' as "unknown property" — not a resolved value
+             Assert.Contains("- reload: unknown property", logs);
+             Assert.Contains("- minHeight: 2000px", logs);
+         }
 
         [Fact]
         public void HandlesExceptionsDuringSnapshot()

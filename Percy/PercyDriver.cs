@@ -37,7 +37,7 @@ namespace PercyIO.Selenium
       return ignoredElementsArray;
     } 
 
-    public PercyDriver(RemoteWebDriver driver)
+    public PercyDriver(WebDriver driver)
     {
       this.percySeleniumDriver = new PercySeleniumDriver(driver);
       setValues(this.percySeleniumDriver);
@@ -50,7 +50,7 @@ namespace PercyIO.Selenium
     }
 
     internal PercyDriver(IPercySeleniumDriver driver)
-    {;
+    {
       this.percySeleniumDriver = driver;
       setValues(this.percySeleniumDriver);
     }
