@@ -53,9 +53,9 @@
       },
       "Selenium.WebDriver": {
         "type": "Direct",
-        "requested": "[4.27.0, )",
-        "resolved": "4.27.0",
-        "contentHash": "bMIpqwpBfYLa1lh8gPVa6A1i9LeWNsfc2mR9why0DutEKI7ck3GVxzco1bB/8bv+7IA6rk4sR9WpZLRUnH/AAw=="
+        "requested": "[4.43.0, )",
+        "resolved": "4.43.0",
+        "contentHash": "gsT0/pFeTUbyeUL9qcf/KLeII802sZrRNeb7YGKKOlFfT50MKxggWQW3Wh9p82IstCcXG91Ya9OLbu3tH/BRoQ=="
       },
       "WebDriverManager": {
         "type": "Direct",
@@ -187,7 +187,7 @@
       "PercyIO.Selenium": {
         "type": "Project",
         "dependencies": {
-          "Selenium.WebDriver": "[4.5.1, )"
+          "Selenium.WebDriver": "[4.43.0, )"
         }
       }
     }
