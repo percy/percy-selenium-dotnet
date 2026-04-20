@@ -392,16 +392,75 @@ namespace PercyIO.Selenium
             };
         }
 
+        // Readiness gate (PER-7348): runs PercyDOM.waitForReady via
+        // ExecuteAsyncScript (callback signal) BEFORE serialize. Graceful on
+        // old CLIs that lack waitForReady. Returns diagnostics for attachment.
+        internal static object? WaitForReady(WebDriver driver, Dictionary<string, object>? options)
+        {
+            string readinessJson = "{}";
+            if (options != null && options.TryGetValue("readiness", out var perSnapshot) && perSnapshot != null)
+            {
+                readinessJson = JsonSerializer.Serialize(perSnapshot);
+            }
+            else if (cliConfig is JsonElement cfg &&
+                     cfg.ValueKind == JsonValueKind.Object &&
+                     cfg.TryGetProperty("snapshot", out JsonElement snap) &&
+                     snap.ValueKind == JsonValueKind.Object &&
+                     snap.TryGetProperty("readiness", out JsonElement rd) &&
+                     rd.ValueKind == JsonValueKind.Object)
+            {
+                readinessJson = rd.GetRawText();
+            }
+
+            try
+            {
+                using JsonDocument doc = JsonDocument.Parse(readinessJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                    doc.RootElement.TryGetProperty("preset", out JsonElement presetEl) &&
+                    presetEl.ValueKind == JsonValueKind.String &&
+                    presetEl.GetString() == "disabled")
+                {
+                    return null;
+                }
+            }
+            catch { /* fall through */ }
+
+            string script =
+                "var cfg = " + readinessJson + ";"
+                + "var done = arguments[arguments.length - 1];"
+                + "try {"
+                + "  if (typeof PercyDOM !== 'undefined' && typeof PercyDOM.waitForReady === 'function') {"
+                + "    PercyDOM.waitForReady(cfg).then(function(r){ done(r); }).catch(function(){ done(); });"
+                + "  } else { done(); }"
+                + "} catch (e) { done(); }";
+            try
+            {
+                return driver.ExecuteAsyncScript(script);
+            }
+            catch (Exception e)
+            {
+                Log($"waitForReady failed, proceeding to serialize: {e.Message}", "debug");
+                return null;
+            }
+        }
+
         private static dynamic getSerializedDom(
             WebDriver driver,
             object cookies,
             Dictionary<string, object>? options,
             string? domJs = null)
         {
+            // Readiness gate before serialize (PER-7348). Graceful on old CLI.
+            object? readinessDiagnostics = WaitForReady(driver, options);
+
             var opts = JsonSerializer.Serialize(options);
             string script = $"return PercyDOM.serialize({opts})";
             var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
             domSnapshot["cookies"] = cookies;
+            if (readinessDiagnostics != null)
+            {
+                domSnapshot["readiness_diagnostics"] = readinessDiagnostics;
+            }
 
             // Process CORS iframes when DOM script is available
             if (!string.IsNullOrEmpty(domJs))

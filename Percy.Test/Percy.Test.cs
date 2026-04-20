@@ -338,6 +338,46 @@ namespace PercyIO.Selenium.Tests
             }
             Percy.Enabled = oldEnabledFn;
         }
+
+        // --- Readiness gate (PER-7348) --------------------------------------
+
+        [Fact]
+        public void PostsSnapshotWithReadinessEnabled()
+        {
+            // preset=balanced → SDK calls PercyDOM.waitForReady via ExecuteAsyncScript
+            // before serialize. Snapshot still posts normally regardless of whether
+            // the connected CLI exposes waitForReady (typeof guard in the script).
+            Percy.Snapshot(driver, "readiness-balanced", new {
+                readiness = new { preset = "balanced" }
+            });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            Assert.Contains("Received snapshot: readiness-balanced", logs);
+        }
+
+        [Fact]
+        public void PostsSnapshotWithReadinessDisabled()
+        {
+            // preset=disabled → SDK skips the ExecuteAsyncScript. Snapshot still posts.
+            Percy.Snapshot(driver, "readiness-disabled", new {
+                readiness = new { preset = "disabled" }
+            });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            Assert.Contains("Received snapshot: readiness-disabled", logs);
+        }
     }
     public class RegionTests
     {
