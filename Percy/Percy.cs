@@ -713,6 +713,40 @@ namespace PercyIO.Selenium
             return domSnapshots;
         }
 
+        private static Dictionary<string, object> MergeSnapshotOptions(Dictionary<string, object>? options)
+        {
+            var merged = new Dictionary<string, object>();
+            if (cliConfig != null)
+            {
+                try
+                {
+                    JsonElement config = (JsonElement)cliConfig;
+                    if (config.TryGetProperty("snapshot", out JsonElement snapshotElement) &&
+                        snapshotElement.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (JsonProperty prop in snapshotElement.EnumerateObject())
+                        {
+                            merged[prop.Name] = prop.Value.ValueKind switch
+                            {
+                                JsonValueKind.True => true,
+                                JsonValueKind.False => false,
+                                JsonValueKind.Number => prop.Value.TryGetInt32(out int intVal) ? intVal : (object)prop.Value.GetDouble(),
+                                JsonValueKind.String => prop.Value.GetString(),
+                                _ => prop.Value
+                            };
+                        }
+                    }
+                }
+                catch (Exception) { }
+            }
+            if (options != null)
+            {
+                foreach (var kvp in options)
+                    merged[kvp.Key] = kvp.Value;
+            }
+            return merged;
+        }
+
         private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options)
         {
             if (cliConfig == null) return false;
@@ -763,14 +797,16 @@ namespace PercyIO.Selenium
                 if (_dom == null)
                     _dom = GetPercyDOM();
 
+                // Merge .percy.yml config options with snapshot options (snapshot options take priority)
+                var mergedOptions = MergeSnapshotOptions(options);
+
                 var cookies = driver.Manage().Cookies.AllCookies;
-                string opts = JsonSerializer.Serialize(options);
                 dynamic domSnapshot = null;
 
-                if (isResponsiveSnapshotCapture(options)) {
-                    domSnapshot = CaptureResponsiveDom(driver, cookies, options);
+                if (isResponsiveSnapshotCapture(mergedOptions)) {
+                    domSnapshot = CaptureResponsiveDom(driver, cookies, mergedOptions);
                 } else {
-                    domSnapshot = getSerializedDom(driver, cookies, options, _dom);
+                    domSnapshot = getSerializedDom(driver, cookies, mergedOptions, _dom);
                 }
 
                 Options snapshotOptions = new Options {
