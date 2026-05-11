@@ -788,6 +788,142 @@ namespace PercyIO.Selenium
             return corsIframes;
         }
 
+        // Use Chrome DevTools Protocol to discover closed shadow roots (which are
+        // invisible to JS — `el.shadowRoot` is null) and expose each one to the
+        // page via a window-bound WeakMap. PercyDOM.serialize() looks up the map
+        // when cloning shadow hosts so the closed content is included in the
+        // snapshot. No-op on non-Chrome drivers / when CDP isn't reachable.
+        // Re-prime after page reloads — the WeakMap lives on `window` and is
+        // wiped along with the rest of the document.
+        internal static void ExposeClosedShadowRoots(WebDriver driver)
+        {
+            if (!IsChromeBrowser(driver)) return;
+            MethodInfo? executeCdp = driver.GetType().GetMethod(
+                "ExecuteCdpCommand", new[] { typeof(string), typeof(Dictionary<string, object>) });
+            if (executeCdp == null)
+            {
+                Log("ExecuteCdpCommand unavailable on driver; skipping closed shadow root exposure", "debug");
+                return;
+            }
+
+            try
+            {
+                executeCdp.Invoke(driver, new object[] { "DOM.enable", new Dictionary<string, object>() });
+
+                var getDocResult = executeCdp.Invoke(driver, new object[] {
+                    "DOM.getDocument",
+                    new Dictionary<string, object> { ["depth"] = -1, ["pierce"] = true }
+                });
+                if (getDocResult == null) return;
+
+                // The .NET ExecuteCdpCommand returns a Dictionary<string, object>
+                // whose values are JSON-decoded. Pull out the root node and walk it.
+                var docDict = getDocResult as IDictionary<string, object>;
+                if (docDict == null || !docDict.TryGetValue("root", out object? rootObj) || rootObj == null)
+                    return;
+
+                var closedPairs = new List<(long host, long shadow)>();
+                CollectClosedShadowRoots(rootObj, closedPairs);
+
+                if (closedPairs.Count == 0) return;
+                Log($"Found {closedPairs.Count} closed shadow root(s), exposing via CDP", "debug");
+
+                // Prime the WeakMap on the page first (same key as PercyDOM uses).
+                driver.ExecuteScript(
+                    "window.__percyClosedShadowRoots = window.__percyClosedShadowRoots || new WeakMap();");
+
+                foreach (var pair in closedPairs)
+                {
+                    try
+                    {
+                        var hostResolve = executeCdp.Invoke(driver, new object[] {
+                            "DOM.resolveNode",
+                            new Dictionary<string, object> { ["backendNodeId"] = pair.host }
+                        }) as IDictionary<string, object>;
+                        var shadowResolve = executeCdp.Invoke(driver, new object[] {
+                            "DOM.resolveNode",
+                            new Dictionary<string, object> { ["backendNodeId"] = pair.shadow }
+                        }) as IDictionary<string, object>;
+                        string? hostObjectId = ExtractObjectId(hostResolve);
+                        string? shadowObjectId = ExtractObjectId(shadowResolve);
+                        if (hostObjectId == null || shadowObjectId == null) continue;
+
+                        var args = new List<object> {
+                            new Dictionary<string, object> { ["objectId"] = shadowObjectId }
+                        };
+                        executeCdp.Invoke(driver, new object[] {
+                            "Runtime.callFunctionOn",
+                            new Dictionary<string, object> {
+                                ["functionDeclaration"] = "function(shadowRoot) { window.__percyClosedShadowRoots.set(this, shadowRoot); }",
+                                ["objectId"] = hostObjectId,
+                                ["arguments"] = args
+                            }
+                        });
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"Failed to expose one closed shadow root: {e.Message}", "debug");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Log($"Could not expose closed shadow roots via CDP: {e.Message}", "debug");
+            }
+        }
+
+        // Walk a CDP DOM node tree collecting (hostBackendNodeId,
+        // shadowBackendNodeId) pairs for every closed shadow root. Skips nodes
+        // inside child frame documents — closed shadow DOM inside cross-frame
+        // documents lives in a different execution context whose window has no
+        // WeakMap to write into.
+        private static void CollectClosedShadowRoots(object nodeObj, List<(long, long)> pairs)
+        {
+            var node = nodeObj as IDictionary<string, object>;
+            if (node == null) return;
+            if (node.ContainsKey("contentDocument")) return; // child frame document
+
+            if (node.TryGetValue("shadowRoots", out object? srRaw) && srRaw is System.Collections.IEnumerable shadowRoots)
+            {
+                long? hostId = TryGetLong(node, "backendNodeId");
+                foreach (var srItem in shadowRoots)
+                {
+                    var sr = srItem as IDictionary<string, object>;
+                    if (sr == null) continue;
+                    string? type = sr.TryGetValue("shadowRootType", out object? t) ? t?.ToString() : null;
+                    long? shadowId = TryGetLong(sr, "backendNodeId");
+                    if (type == "closed" && hostId.HasValue && shadowId.HasValue)
+                    {
+                        pairs.Add((hostId.Value, shadowId.Value));
+                    }
+                    CollectClosedShadowRoots(sr, pairs);
+                }
+            }
+
+            if (node.TryGetValue("children", out object? childrenRaw) && childrenRaw is System.Collections.IEnumerable children)
+            {
+                foreach (var child in children) CollectClosedShadowRoots(child, pairs);
+            }
+        }
+
+        private static long? TryGetLong(IDictionary<string, object> dict, string key)
+        {
+            if (!dict.TryGetValue(key, out object? raw) || raw == null) return null;
+            if (raw is long l) return l;
+            if (raw is int i) return i;
+            if (long.TryParse(raw.ToString(), out long parsed)) return parsed;
+            return null;
+        }
+
+        private static string? ExtractObjectId(IDictionary<string, object>? resolveResult)
+        {
+            if (resolveResult == null) return null;
+            if (!resolveResult.TryGetValue("object", out object? obj)) return null;
+            var objDict = obj as IDictionary<string, object>;
+            if (objDict == null) return null;
+            return objDict.TryGetValue("objectId", out object? id) ? id?.ToString() : null;
+        }
+
         private static dynamic getSerializedDom(
             WebDriver driver,
             object cookies,
@@ -1059,6 +1195,9 @@ namespace PercyIO.Selenium
                         {
                             driver.ExecuteScript(GetPercyDOM());
                         }
+                        // Re-prime the closed shadow root WeakMap — page reload
+                        // creates a fresh document and the previous map is gone.
+                        ExposeClosedShadowRoots(driver);
                         driver.ExecuteScript("PercyDOM.waitForResize()");
                         resizeCount = 0;
                     }
@@ -1129,6 +1268,11 @@ namespace PercyIO.Selenium
                 // Ensure _dom is populated for CORS iframe processing
                 if (_dom == null)
                     _dom = GetPercyDOM();
+
+                // Expose closed shadow roots via CDP before serializing so
+                // PercyDOM.serialize() can pick them up through the WeakMap.
+                // Non-Chrome browsers and missing ExecuteCdpCommand are no-ops.
+                ExposeClosedShadowRoots(driver);
 
                 var cookies = driver.Manage().Cookies.AllCookies;
                 string opts = JsonSerializer.Serialize(options);
