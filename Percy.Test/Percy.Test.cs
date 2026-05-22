@@ -98,6 +98,11 @@ namespace PercyIO.Selenium.Tests
             // Always drop SDK version check banners and memory dumps
             if (msg.Contains("SDK Version Check") || msg.Contains("\"cores\":") || msg.Contains("memoryInfo"))
                 return false;
+            // Drop CLI-side readiness gate logs ("Readiness passed in 321ms ...",
+            // "- readiness.preset:", "- readiness_diagnostics:", etc.) so PER-7348
+            // changes don't perturb existing per-snapshot log assertions.
+            if (msg.StartsWith("Readiness ") || msg.Contains("readiness"))
+                return false;
             // For "- key: value" config lines keep only the essential known set
             if (Regex.IsMatch(msg, @"^- [a-zA-Z.]+: "))
                 return _essentialConfigPrefixes.Any(p => msg.StartsWith(p));
