@@ -6,9 +6,19 @@ using Xunit;
 
 namespace PercyIO.Selenium.Tests
 {
+    // Collection definition used to serialize tests that mutate Percy's
+    // static _http field. xunit.runner.json already disables parallelization
+    // across collections, but the explicit Collection attribute pins the
+    // invariant so a future flip back to parallel test collections doesn't
+    // silently race GetHttpClient_* against any other suite that touches
+    // setHttpClient / _http (Percy.Test.cs and PercyDriver.Test.cs both do).
+    [CollectionDefinition("HttpClientStateSerial", DisableParallelization = true)]
+    public class HttpClientStateSerialCollection { }
+
     // Unit tests for the CORS iframe + closed shadow DOM helpers added to
     // Percy.cs. These don't require the Percy CLI or a real browser; they
     // exercise the pure-C# helpers via reflection where they are internal.
+    [Collection("HttpClientStateSerial")]
     public class CorsIframesTest
     {
         // -- GetOrigin -----------------------------------------------------------
@@ -211,6 +221,212 @@ namespace PercyIO.Selenium.Tests
             var second = method.Invoke(null, null);
 
             Assert.Same(first, second);
+        }
+
+        // -- CollectClosedShadowRoots same-origin iframe recursion --------------
+        //
+        // The CDP DOM walker used to early-return on any node with a
+        // contentDocument, silently skipping closed shadow DOM inside
+        // same-origin iframes. The new behavior recurses into same-origin
+        // contentDocument trees (same JS realm, same WeakMap) while still
+        // skipping cross-origin frames.
+        private static Dictionary<string, object> Node(long backendNodeId,
+            List<Dictionary<string, object>>? children = null,
+            List<Dictionary<string, object>>? shadowRoots = null,
+            Dictionary<string, object>? contentDocument = null)
+        {
+            var n = new Dictionary<string, object>
+            {
+                ["backendNodeId"] = backendNodeId
+            };
+            if (children != null) n["children"] = children;
+            if (shadowRoots != null) n["shadowRoots"] = shadowRoots;
+            if (contentDocument != null) n["contentDocument"] = contentDocument;
+            return n;
+        }
+
+        private static Dictionary<string, object> ClosedShadowRoot(long backendNodeId) =>
+            new Dictionary<string, object>
+            {
+                ["backendNodeId"] = backendNodeId,
+                ["shadowRootType"] = "closed"
+            };
+
+        [Fact]
+        public void CollectClosedShadowRoots_RecursesIntoSameOriginContentDocument()
+        {
+            // host (id=10) hosts a closed shadow root (id=11), nested inside an
+            // iframe whose contentDocument is same-origin with the page.
+            var sameOriginIframe = Node(
+                backendNodeId: 5,
+                contentDocument: new Dictionary<string, object>
+                {
+                    ["backendNodeId"] = 6,
+                    ["documentURL"] = "https://example.com/iframe-page",
+                    ["children"] = new List<Dictionary<string, object>> {
+                        Node(10, shadowRoots: new List<Dictionary<string, object>> { ClosedShadowRoot(11) })
+                    }
+                });
+            var root = Node(1, children: new List<Dictionary<string, object>> { sameOriginIframe });
+
+            var pairs = new List<(long, long)>();
+            Percy.CollectClosedShadowRoots(root, pairs, "https://example.com");
+
+            Assert.Single(pairs);
+            Assert.Equal((10L, 11L), pairs[0]);
+        }
+
+        [Fact]
+        public void CollectClosedShadowRoots_SkipsCrossOriginContentDocument()
+        {
+            var crossOriginIframe = Node(
+                backendNodeId: 5,
+                contentDocument: new Dictionary<string, object>
+                {
+                    ["backendNodeId"] = 6,
+                    ["documentURL"] = "https://other.example.com/iframe-page",
+                    ["children"] = new List<Dictionary<string, object>> {
+                        Node(10, shadowRoots: new List<Dictionary<string, object>> { ClosedShadowRoot(11) })
+                    }
+                });
+            var root = Node(1, children: new List<Dictionary<string, object>> { crossOriginIframe });
+
+            var pairs = new List<(long, long)>();
+            Percy.CollectClosedShadowRoots(root, pairs, "https://example.com");
+
+            Assert.Empty(pairs);
+        }
+
+        [Fact]
+        public void CollectClosedShadowRoots_SkipsContentDocumentWithMissingDocumentUrl()
+        {
+            // Defensive fallback: if documentURL is absent we can't prove
+            // same-origin, so skip — matches pre-fix behavior.
+            var iframe = Node(
+                backendNodeId: 5,
+                contentDocument: new Dictionary<string, object>
+                {
+                    ["backendNodeId"] = 6,
+                    ["children"] = new List<Dictionary<string, object>> {
+                        Node(10, shadowRoots: new List<Dictionary<string, object>> { ClosedShadowRoot(11) })
+                    }
+                });
+            var root = Node(1, children: new List<Dictionary<string, object>> { iframe });
+
+            var pairs = new List<(long, long)>();
+            Percy.CollectClosedShadowRoots(root, pairs, "https://example.com");
+
+            Assert.Empty(pairs);
+        }
+
+        [Fact]
+        public void CollectClosedShadowRoots_TopLevelClosedRootStillCaptured()
+        {
+            // Sanity check: the same-origin-recursion fix mustn't regress the
+            // baseline top-level closed shadow root capture.
+            var host = Node(10, shadowRoots: new List<Dictionary<string, object>> { ClosedShadowRoot(11) });
+            var root = Node(1, children: new List<Dictionary<string, object>> { host });
+
+            var pairs = new List<(long, long)>();
+            Percy.CollectClosedShadowRoots(root, pairs, "https://example.com");
+
+            Assert.Single(pairs);
+            Assert.Equal((10L, 11L), pairs[0]);
+        }
+
+        // -- RunClosedShadowRootExposure: DOM.enable / DOM.disable lifecycle ---
+        //
+        // Regression coverage for the new domEnabled finally path. The fake
+        // CDP invoker records every command issued so the test can assert the
+        // expected lifecycle, including the negative case where DOM.disable
+        // must NOT be sent if DOM.enable itself failed.
+        private sealed class FakeCdp
+        {
+            public readonly List<string> Commands = new List<string>();
+            public Func<string, Dictionary<string, object>, object?> Handler { get; set; }
+                = (_, __) => null;
+
+            public object? Invoke(string command, Dictionary<string, object> args)
+            {
+                Commands.Add(command);
+                return Handler(command, args);
+            }
+        }
+
+        private static Dictionary<string, object> MinimalGetDocumentResponse() =>
+            new Dictionary<string, object>
+            {
+                ["root"] = new Dictionary<string, object>
+                {
+                    ["backendNodeId"] = 1L,
+                    // No shadowRoots and no children -> walker finds no pairs,
+                    // so the resolveNode / Runtime.callFunctionOn branch is
+                    // skipped and we get a clean DOM.enable / DOM.disable pair.
+                }
+            };
+
+        [Fact]
+        public void RunClosedShadowRootExposure_CallsDomDisableAfterSuccess()
+        {
+            var fake = new FakeCdp();
+            fake.Handler = (cmd, args) => cmd == "DOM.getDocument"
+                ? MinimalGetDocumentResponse()
+                : (object?)null;
+
+            Percy.RunClosedShadowRootExposure(
+                fake.Invoke,
+                _ => { /* scriptRunner no-op */ },
+                () => "https://example.com/");
+
+            Assert.Contains("DOM.enable", fake.Commands);
+            Assert.Contains("DOM.disable", fake.Commands);
+            // DOM.disable must be the last CDP command sent.
+            Assert.Equal("DOM.disable", fake.Commands[fake.Commands.Count - 1]);
+        }
+
+        [Fact]
+        public void RunClosedShadowRootExposure_CallsDomDisableAfterGetDocumentThrows()
+        {
+            var fake = new FakeCdp();
+            fake.Handler = (cmd, args) =>
+            {
+                if (cmd == "DOM.getDocument") throw new InvalidOperationException("boom");
+                return null;
+            };
+
+            // Should swallow the exception and still issue DOM.disable.
+            Percy.RunClosedShadowRootExposure(
+                fake.Invoke,
+                _ => { },
+                () => "https://example.com/");
+
+            Assert.Contains("DOM.enable", fake.Commands);
+            Assert.Contains("DOM.getDocument", fake.Commands);
+            Assert.Contains("DOM.disable", fake.Commands);
+        }
+
+        [Fact]
+        public void RunClosedShadowRootExposure_DoesNotCallDomDisableWhenDomEnableFails()
+        {
+            // Critical invariant: if DOM.enable itself threw, domEnabled stays
+            // false and the finally block must NOT issue a spurious DOM.disable
+            // (which would be sent on a session that never enabled the DOM
+            // domain in the first place).
+            var fake = new FakeCdp();
+            fake.Handler = (cmd, args) =>
+            {
+                if (cmd == "DOM.enable") throw new InvalidOperationException("session closed");
+                return null;
+            };
+
+            Percy.RunClosedShadowRootExposure(
+                fake.Invoke,
+                _ => { },
+                () => "https://example.com/");
+
+            Assert.Contains("DOM.enable", fake.Commands);
+            Assert.DoesNotContain("DOM.disable", fake.Commands);
+            Assert.DoesNotContain("DOM.getDocument", fake.Commands);
         }
 
     }
