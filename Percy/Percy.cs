@@ -368,10 +368,24 @@ namespace PercyIO.Selenium
         }
 
         // Clamp user-supplied iframe nesting depth to a safe range. Mirrors
-        // @percy/sdk-utils clampFrameDepth — anything non-positive falls back to
-        // the default, anything above MAX_ALLOWED_FRAME_DEPTH is capped.
+        // @percy/sdk-utils clampFrameDepth and the JS SDKs:
+        //   * depth <= 0   -> "use default" (DEFAULT_MAX_FRAME_DEPTH = 5).
+        //                    `0` is deliberately treated as "unset / use default"
+        //                    rather than "disable iframe capture" — matching
+        //                    sdk-utils so users who explicitly pass `0` (e.g.
+        //                    from a config file with an unset value) get the
+        //                    standard depth instead of silently disabling
+        //                    capture. To disable nested capture, omit the
+        //                    option or use `data-percy-ignore` /
+        //                    `ignoreIframeSelectors`.
+        //   * depth >  MAX_ALLOWED_FRAME_DEPTH -> capped at the hard ceiling.
+        //   * otherwise    -> returned as-is.
+        // If this semantic ever needs to change to "0 disables", do it across
+        // all Percy SDKs at once via sdk-utils first.
         internal static int ClampFrameDepth(int depth, int defaultMax = DEFAULT_MAX_FRAME_DEPTH)
         {
+            // Intentionally maps 0 -> default (see comment above). Negative
+            // values also collapse here as a defensive fallback.
             if (depth <= 0) return defaultMax;
             if (depth > MAX_ALLOWED_FRAME_DEPTH) return MAX_ALLOWED_FRAME_DEPTH;
             return depth;
