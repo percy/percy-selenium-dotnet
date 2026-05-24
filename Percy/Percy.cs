@@ -76,7 +76,10 @@ namespace PercyIO.Selenium
         }
 
         private static readonly object _httpLock = new object();
-        private static HttpClient? _http;
+        // volatile so the unlocked read in getHttpClient sees a fully-published
+        // HttpClient (Timeout set) before the field reference becomes visible
+        // to other threads on weak memory models (e.g. ARM).
+        private static volatile HttpClient? _http;
 
         private static string? sessionType = null;
         private static object? eligibleWidths;
@@ -806,9 +809,11 @@ namespace PercyIO.Selenium
                 return;
             }
 
+            bool domEnabled = false;
             try
             {
                 executeCdp.Invoke(driver, new object[] { "DOM.enable", new Dictionary<string, object>() });
+                domEnabled = true;
 
                 var getDocResult = executeCdp.Invoke(driver, new object[] {
                     "DOM.getDocument",
@@ -869,6 +874,17 @@ namespace PercyIO.Selenium
             catch (Exception e)
             {
                 Log($"Could not expose closed shadow roots via CDP: {e.Message}", "debug");
+            }
+            finally
+            {
+                // Release the DOM domain so subsequent CDP commands don't keep
+                // emitting DOM events for this session. Best-effort — we don't
+                // care if disable fails (session already closed, etc.).
+                if (domEnabled)
+                {
+                    try { executeCdp.Invoke(driver, new object[] { "DOM.disable", new Dictionary<string, object>() }); }
+                    catch (Exception) { /* defensive */ }
+                }
             }
         }
 
