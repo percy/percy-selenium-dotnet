@@ -823,16 +823,40 @@ namespace PercyIO.Selenium
                 return;
             }
 
+            // Adapt the reflected MethodInfo to a Func so the core flow can be
+            // unit-tested with a fake invoker. ScriptRunner is a small adapter
+            // around driver.ExecuteScript for the same reason.
+            Func<string, Dictionary<string, object>, object?> cdpInvoker = (cmd, args) =>
+                executeCdp.Invoke(driver, new object[] { cmd, args ?? new Dictionary<string, object>() });
+            Action<string> scriptRunner = (script) => driver.ExecuteScript(script);
+            Func<string> pageUrlGetter = () => {
+                try { return driver.Url ?? ""; }
+                catch (Exception e) {
+                    Log($"Could not read driver.Url for shadow walk origin: {e.Message}", "debug");
+                    return "";
+                }
+            };
+
+            RunClosedShadowRootExposure(cdpInvoker, scriptRunner, pageUrlGetter);
+        }
+
+        // Pure-logic core of ExposeClosedShadowRoots, factored out so unit
+        // tests can drive it with a fake CDP invoker and assert that
+        // DOM.disable always runs in the finally branch when DOM.enable
+        // succeeded — and stays unsent when DOM.enable itself threw.
+        internal static void RunClosedShadowRootExposure(
+            Func<string, Dictionary<string, object>, object?> cdpInvoker,
+            Action<string> scriptRunner,
+            Func<string> pageUrlGetter)
+        {
             bool domEnabled = false;
             try
             {
-                executeCdp.Invoke(driver, new object[] { "DOM.enable", new Dictionary<string, object>() });
+                cdpInvoker("DOM.enable", new Dictionary<string, object>());
                 domEnabled = true;
 
-                var getDocResult = executeCdp.Invoke(driver, new object[] {
-                    "DOM.getDocument",
-                    new Dictionary<string, object> { ["depth"] = -1, ["pierce"] = true }
-                });
+                var getDocResult = cdpInvoker("DOM.getDocument",
+                    new Dictionary<string, object> { ["depth"] = -1, ["pierce"] = true });
                 if (getDocResult == null) return;
 
                 // The .NET ExecuteCdpCommand returns a Dictionary<string, object>
@@ -841,28 +865,32 @@ namespace PercyIO.Selenium
                 if (docDict == null || !docDict.TryGetValue("root", out object? rootObj) || rootObj == null)
                     return;
 
+                // Compute the top-level page origin once so the walker can
+                // recurse INTO same-origin child frame documents (those share
+                // the parent's JS realm, so writing into window.__percyClosedShadowRoots
+                // works) but still skip cross-origin frames (different realm).
+                string pageOrigin = GetOrigin(pageUrlGetter() ?? "");
+
                 var closedPairs = new List<(long host, long shadow)>();
-                CollectClosedShadowRoots(rootObj, closedPairs);
+                CollectClosedShadowRoots(rootObj, closedPairs, pageOrigin);
 
                 if (closedPairs.Count == 0) return;
                 Log($"Found {closedPairs.Count} closed shadow root(s), exposing via CDP", "debug");
 
                 // Prime the WeakMap on the page first (same key as PercyDOM uses).
-                driver.ExecuteScript(
+                scriptRunner(
                     "window.__percyClosedShadowRoots = window.__percyClosedShadowRoots || new WeakMap();");
 
                 foreach (var pair in closedPairs)
                 {
                     try
                     {
-                        var hostResolve = executeCdp.Invoke(driver, new object[] {
-                            "DOM.resolveNode",
-                            new Dictionary<string, object> { ["backendNodeId"] = pair.host }
-                        }) as IDictionary<string, object>;
-                        var shadowResolve = executeCdp.Invoke(driver, new object[] {
-                            "DOM.resolveNode",
-                            new Dictionary<string, object> { ["backendNodeId"] = pair.shadow }
-                        }) as IDictionary<string, object>;
+                        var hostResolve = cdpInvoker("DOM.resolveNode",
+                            new Dictionary<string, object> { ["backendNodeId"] = pair.host })
+                            as IDictionary<string, object>;
+                        var shadowResolve = cdpInvoker("DOM.resolveNode",
+                            new Dictionary<string, object> { ["backendNodeId"] = pair.shadow })
+                            as IDictionary<string, object>;
                         string? hostObjectId = ExtractObjectId(hostResolve);
                         string? shadowObjectId = ExtractObjectId(shadowResolve);
                         if (hostObjectId == null || shadowObjectId == null) continue;
@@ -870,13 +898,10 @@ namespace PercyIO.Selenium
                         var args = new List<object> {
                             new Dictionary<string, object> { ["objectId"] = shadowObjectId }
                         };
-                        executeCdp.Invoke(driver, new object[] {
-                            "Runtime.callFunctionOn",
-                            new Dictionary<string, object> {
-                                ["functionDeclaration"] = "function(shadowRoot) { window.__percyClosedShadowRoots.set(this, shadowRoot); }",
-                                ["objectId"] = hostObjectId,
-                                ["arguments"] = args
-                            }
+                        cdpInvoker("Runtime.callFunctionOn", new Dictionary<string, object> {
+                            ["functionDeclaration"] = "function(shadowRoot) { window.__percyClosedShadowRoots.set(this, shadowRoot); }",
+                            ["objectId"] = hostObjectId,
+                            ["arguments"] = args
                         });
                     }
                     catch (Exception e)
@@ -894,24 +919,67 @@ namespace PercyIO.Selenium
                 // Release the DOM domain so subsequent CDP commands don't keep
                 // emitting DOM events for this session. Best-effort — we don't
                 // care if disable fails (session already closed, etc.).
+                // Only sent when DOM.enable previously succeeded; if DOM.enable
+                // itself threw, domEnabled stays false and we don't send a
+                // spurious DOM.disable.
                 if (domEnabled)
                 {
-                    try { executeCdp.Invoke(driver, new object[] { "DOM.disable", new Dictionary<string, object>() }); }
+                    try { cdpInvoker("DOM.disable", new Dictionary<string, object>()); }
                     catch (Exception) { /* defensive */ }
                 }
             }
         }
 
         // Walk a CDP DOM node tree collecting (hostBackendNodeId,
-        // shadowBackendNodeId) pairs for every closed shadow root. Skips nodes
-        // inside child frame documents — closed shadow DOM inside cross-frame
-        // documents lives in a different execution context whose window has no
-        // WeakMap to write into.
-        private static void CollectClosedShadowRoots(object nodeObj, List<(long, long)> pairs)
+        // shadowBackendNodeId) pairs for every closed shadow root.
+        //
+        // When the walker encounters an iframe node (CDP exposes the nested
+        // document as `contentDocument`), it decides whether to recurse based
+        // on the document's `documentURL`:
+        //   * Same origin as the top-level page  -> recurse INTO contentDocument.
+        //     The frame shares the parent's JS realm, so closed shadow roots
+        //     discovered inside it can be written into the same
+        //     window.__percyClosedShadowRoots WeakMap that PercyDOM.serialize
+        //     reads. Without this, same-origin iframes silently skipped the
+        //     entire closed-shadow walk.
+        //   * Cross origin  -> skip. Different JS realm; the host objectIds
+        //     resolved by DOM.resolveNode wouldn't belong to our page's
+        //     execution context anyway.
+        //   * pageOrigin empty / contentDocument missing documentURL -> skip,
+        //     defensive default (matches prior behavior).
+        internal static void CollectClosedShadowRoots(
+            object nodeObj, List<(long, long)> pairs, string pageOrigin)
         {
             var node = nodeObj as IDictionary<string, object>;
             if (node == null) return;
-            if (node.ContainsKey("contentDocument")) return; // child frame document
+
+            // Child frame document handling. CDP attaches `contentDocument` to
+            // iframe / frame nodes. Decide whether to recurse into the nested
+            // document based on origin compared to the top-level page.
+            if (node.TryGetValue("contentDocument", out object? contentDocRaw) && contentDocRaw != null)
+            {
+                var contentDoc = contentDocRaw as IDictionary<string, object>;
+                if (contentDoc == null) return;
+                string? docUrl = contentDoc.TryGetValue("documentURL", out object? du) ? du?.ToString() : null;
+                if (string.IsNullOrEmpty(pageOrigin) || string.IsNullOrEmpty(docUrl))
+                {
+                    // Defensive: we can't prove same-origin, so skip — matches
+                    // pre-fix behavior for the unknown case.
+                    return;
+                }
+                string frameOrigin = GetOrigin(docUrl);
+                if (frameOrigin != pageOrigin)
+                {
+                    Log($"Skipping cross-origin frame document during closed-shadow walk: {docUrl}", "debug");
+                    return;
+                }
+                // Same-origin frame: walk into the contentDocument as if it
+                // were any other subtree. Closed shadow roots found inside
+                // share the parent window's __percyClosedShadowRoots map.
+                CollectClosedShadowRoots(contentDoc, pairs, pageOrigin);
+                // Continue with this node's own children/shadowRoots below
+                // (e.g. the iframe element itself could host a shadow root).
+            }
 
             if (node.TryGetValue("shadowRoots", out object? srRaw) && srRaw is System.Collections.IEnumerable shadowRoots)
             {
@@ -926,13 +994,13 @@ namespace PercyIO.Selenium
                     {
                         pairs.Add((hostId.Value, shadowId.Value));
                     }
-                    CollectClosedShadowRoots(sr, pairs);
+                    CollectClosedShadowRoots(sr, pairs, pageOrigin);
                 }
             }
 
             if (node.TryGetValue("children", out object? childrenRaw) && childrenRaw is System.Collections.IEnumerable children)
             {
-                foreach (var child in children) CollectClosedShadowRoots(child, pairs);
+                foreach (var child in children) CollectClosedShadowRoots(child, pairs, pageOrigin);
             }
         }
 
