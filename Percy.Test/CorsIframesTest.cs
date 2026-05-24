@@ -174,5 +174,44 @@ namespace PercyIO.Selenium.Tests
             Assert.Single(ex.PartialCapture);
             Assert.Equal("http://a/", ex.PartialCapture[0]["frameUrl"]);
         }
+
+        // -- HttpClient init invariant -------------------------------------------
+
+        [Fact]
+        public void GetHttpClient_AlwaysReturnsClientWithTenMinuteTimeout()
+        {
+            // The newly-volatile _http field exists so the unlocked outer
+            // read in getHttpClient is guaranteed to see a fully-published
+            // HttpClient with Timeout already set. Force the first-caller
+            // path and confirm the invariant.
+            var field = typeof(Percy).GetField("_http",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(field);
+            field!.SetValue(null, null);
+
+            var method = typeof(Percy).GetMethod("getHttpClient",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            var client = (System.Net.Http.HttpClient)method!.Invoke(null, null)!;
+
+            Assert.NotNull(client);
+            Assert.Equal(TimeSpan.FromMinutes(10), client.Timeout);
+        }
+
+        [Fact]
+        public void GetHttpClient_IsIdempotentAcrossCalls()
+        {
+            var field = typeof(Percy).GetField("_http",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            field!.SetValue(null, null);
+
+            var method = typeof(Percy).GetMethod("getHttpClient",
+                BindingFlags.NonPublic | BindingFlags.Static);
+            var first = method!.Invoke(null, null);
+            var second = method.Invoke(null, null);
+
+            Assert.Same(first, second);
+        }
+
     }
 }
