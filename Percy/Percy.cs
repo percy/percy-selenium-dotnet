@@ -392,7 +392,7 @@ namespace PercyIO.Selenium
             };
         }
 
-        // Readiness gate (PER-7348): runs PercyDOM.waitForReady via
+        // Readiness gate: runs PercyDOM.waitForReady via
         // ExecuteAsyncScript (callback signal) BEFORE serialize. Graceful on
         // old CLIs that lack waitForReady. Returns diagnostics for attachment.
         //
@@ -502,7 +502,7 @@ namespace PercyIO.Selenium
             Dictionary<string, object>? options,
             string? domJs = null)
         {
-            // Readiness gate before serialize (PER-7348). Graceful on old CLI.
+            // Readiness gate before serialize. Graceful on old CLI.
             object? readinessDiagnostics = WaitForReady(driver, options);
 
             // Strip `readiness` from forwarded serialize args — it's consumed by

@@ -99,7 +99,7 @@ namespace PercyIO.Selenium.Tests
             if (msg.Contains("SDK Version Check") || msg.Contains("\"cores\":") || msg.Contains("memoryInfo"))
                 return false;
             // Drop CLI-side readiness gate logs ("Readiness passed in 321ms ...",
-            // "- readiness.preset:", "- readiness_diagnostics:", etc.) so PER-7348
+            // "- readiness.preset:", "- readiness_diagnostics:", etc.) so 
             // changes don't perturb existing per-snapshot log assertions.
             if (msg.StartsWith("Readiness ") || msg.Contains("readiness"))
                 return false;
@@ -344,7 +344,7 @@ namespace PercyIO.Selenium.Tests
             Percy.Enabled = oldEnabledFn;
         }
 
-        // --- Readiness gate (PER-7348) --------------------------------------
+        // --- Readiness gate --------------------------------------
 
         [Fact]
         public void PostsSnapshotWithReadinessEnabled()
