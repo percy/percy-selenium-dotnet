@@ -98,6 +98,11 @@ namespace PercyIO.Selenium.Tests
             // Always drop SDK version check banners and memory dumps
             if (msg.Contains("SDK Version Check") || msg.Contains("\"cores\":") || msg.Contains("memoryInfo"))
                 return false;
+            // Drop CLI-side readiness gate logs ("Readiness passed in 321ms ...",
+            // "- readiness.preset:", "- readiness_diagnostics:", etc.) so 
+            // changes don't perturb existing per-snapshot log assertions.
+            if (msg.StartsWith("Readiness ") || msg.Contains("readiness"))
+                return false;
             // For "- key: value" config lines keep only the essential known set
             if (Regex.IsMatch(msg, @"^- [a-zA-Z.]+: "))
                 return _essentialConfigPrefixes.Any(p => msg.StartsWith(p));
@@ -337,6 +342,46 @@ namespace PercyIO.Selenium.Tests
                 Assert.Equal("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual", error.Message);
             }
             Percy.Enabled = oldEnabledFn;
+        }
+
+        // --- Readiness gate --------------------------------------
+
+        [Fact]
+        public void PostsSnapshotWithReadinessEnabled()
+        {
+            // preset=balanced → SDK calls PercyDOM.waitForReady via ExecuteAsyncScript
+            // before serialize. Snapshot still posts normally regardless of whether
+            // the connected CLI exposes waitForReady (typeof guard in the script).
+            Percy.Snapshot(driver, "readiness-balanced", new {
+                readiness = new { preset = "balanced" }
+            });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            Assert.Contains("Received snapshot: readiness-balanced", logs);
+        }
+
+        [Fact]
+        public void PostsSnapshotWithReadinessDisabled()
+        {
+            // preset=disabled → SDK skips the ExecuteAsyncScript. Snapshot still posts.
+            Percy.Snapshot(driver, "readiness-disabled", new {
+                readiness = new { preset = "disabled" }
+            });
+
+            JsonElement data = Request("/test/logs");
+            List<string> logs = new List<string>();
+            foreach (JsonElement log in data.GetProperty("logs").EnumerateArray())
+            {
+                string? msg = log.GetProperty("message").GetString();
+                if (msg != null) logs.Add(msg);
+            }
+            Assert.Contains("Received snapshot: readiness-disabled", logs);
         }
     }
     public class RegionTests
