@@ -347,10 +347,20 @@ namespace PercyIO.Selenium
 
         internal static bool IsUnsupportedIframeSrc(string? src)
         {
-            return string.IsNullOrEmpty(src) ||
-                    src.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase) ||
-                    src.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
-                    src.StartsWith("vbscript:", StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(src)) return true;
+            // Canonical list mirrors @percy/sdk-utils BROWSER_INTERNAL_PREFIXES and
+            // the protractor port (#708). `file:` is included to block local-FS
+            // iframes that could leak filesystem content into snapshots.
+            string[] prefixes = {
+                "about:", "chrome:", "chrome-extension:", "devtools:",
+                "edge:", "opera:", "view-source:", "data:", "javascript:",
+                "blob:", "vbscript:", "file:"
+            };
+            foreach (var p in prefixes)
+            {
+                if (src.StartsWith(p, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         internal static string GetOrigin(string? url)

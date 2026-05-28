@@ -10,6 +10,7 @@ using Newtonsoft.Json.Linq;
 
 namespace PercyIO.Selenium.Tests
 {
+  [Collection("HttpClientStateSerial")]
   public class PercyDriverTest
   {
     private readonly Mock<IPercySeleniumDriver> remoteDriver;
