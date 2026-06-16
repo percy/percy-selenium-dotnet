@@ -445,6 +445,44 @@ namespace PercyIO.Selenium.Tests
                 Percy.ResetInternalCaches();
             }
         }
+
+        [Fact]
+        public void NestedConfigObjectIsDeepMergedWithPerSnapshotOptions()
+        {
+            try
+            {
+                // .percy.yml config: nested discovery object with two leaves.
+                JsonElement cliConfig = JsonSerializer.Deserialize<JsonElement>(
+                    "{\"snapshot\":{\"discovery\":{\"networkIdleTimeout\":50,\"disableCache\":false}}}");
+
+                // Per-snapshot call overrides only one leaf of the nested object.
+                var perSnapshotOptions = new Dictionary<string, object>
+                {
+                    {
+                        "discovery", new Dictionary<string, object>
+                        {
+                            { "disableCache", true }
+                        }
+                    }
+                };
+
+                Dictionary<string, object> merged = InvokeMerge(cliConfig, perSnapshotOptions);
+
+                // Nested object is deep-merged, not replaced wholesale.
+                Assert.True(merged.ContainsKey("discovery"));
+                var discovery = Assert.IsType<Dictionary<string, object>>(merged["discovery"]);
+
+                // Config-only leaf is preserved.
+                Assert.Equal(50, discovery["networkIdleTimeout"]);
+
+                // Per-call leaf wins at the leaf level.
+                Assert.Equal(true, discovery["disableCache"]);
+            }
+            finally
+            {
+                Percy.ResetInternalCaches();
+            }
+        }
     }
 
     public class RegionTests

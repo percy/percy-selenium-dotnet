@@ -845,15 +845,12 @@ namespace PercyIO.Selenium
                     {
                         foreach (JsonProperty prop in snapshotElement.EnumerateObject())
                         {
-                            merged[prop.Name] = prop.Value.ValueKind switch
-                            {
-                                JsonValueKind.True => true,
-                                JsonValueKind.False => false,
-                                JsonValueKind.Number => prop.Value.TryGetInt32(out int intVal) ? intVal : (object)prop.Value.GetDouble(),
-                                JsonValueKind.String => prop.Value.GetString(),
-                                JsonValueKind.Array => ConvertJsonArray(prop.Value),
-                                _ => prop.Value
-                            };
+                            // Recursively convert config values so nested JSON
+                            // objects become Dictionary<string, object> and can be
+                            // deep-merged with per-call options below.
+                            var converted = JsonElementToObjectDeep(prop.Value);
+                            if (converted != null)
+                                merged[prop.Name] = converted;
                         }
                     }
                 }
@@ -861,10 +858,73 @@ namespace PercyIO.Selenium
             }
             if (options != null)
             {
-                foreach (var kvp in options)
-                    merged[kvp.Key] = kvp.Value;
+                // Deep-merge: nested objects merge recursively (per-call wins at
+                // leaves), arrays/scalars replace. Matches the JS sdk-utils fix.
+                merged = DeepMerge(merged, options);
             }
             return merged;
+        }
+
+        // Recursively converts a JSON element into plain CLR objects:
+        // Object -> Dictionary<string, object> (recursive),
+        // Array  -> List<object> (recursive),
+        // primitives -> bool / int / double / string.
+        private static object? JsonElementToObjectDeep(JsonElement el)
+        {
+            switch (el.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    var dict = new Dictionary<string, object>();
+                    foreach (JsonProperty prop in el.EnumerateObject())
+                    {
+                        var converted = JsonElementToObjectDeep(prop.Value);
+                        if (converted != null)
+                            dict[prop.Name] = converted;
+                    }
+                    return dict;
+                case JsonValueKind.Array:
+                    var list = new List<object>();
+                    foreach (JsonElement item in el.EnumerateArray())
+                    {
+                        var converted = JsonElementToObjectDeep(item);
+                        if (converted != null)
+                            list.Add(converted);
+                    }
+                    return list;
+                case JsonValueKind.True:
+                    return true;
+                case JsonValueKind.False:
+                    return false;
+                case JsonValueKind.Number:
+                    return el.TryGetInt32(out int intVal) ? (object)intVal : el.GetDouble();
+                case JsonValueKind.String:
+                    return el.GetString();
+                default:
+                    return null;
+            }
+        }
+
+        // Deep-merges override into a copy of baseDict: when a key exists in both
+        // and both values are Dictionary<string, object>, recurse; otherwise the
+        // override value wins (arrays and scalars replace).
+        private static Dictionary<string, object> DeepMerge(
+            Dictionary<string, object> baseDict, Dictionary<string, object> overrideDict)
+        {
+            var result = new Dictionary<string, object>(baseDict);
+            foreach (var kvp in overrideDict)
+            {
+                if (result.TryGetValue(kvp.Key, out var existing) &&
+                    existing is Dictionary<string, object> existingDict &&
+                    kvp.Value is Dictionary<string, object> overrideNested)
+                {
+                    result[kvp.Key] = DeepMerge(existingDict, overrideNested);
+                }
+                else
+                {
+                    result[kvp.Key] = kvp.Value;
+                }
+            }
+            return result;
         }
 
         private static object ConvertJsonArray(JsonElement array)
