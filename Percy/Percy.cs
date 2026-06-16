@@ -851,6 +851,7 @@ namespace PercyIO.Selenium
                                 JsonValueKind.False => false,
                                 JsonValueKind.Number => prop.Value.TryGetInt32(out int intVal) ? intVal : (object)prop.Value.GetDouble(),
                                 JsonValueKind.String => prop.Value.GetString(),
+                                JsonValueKind.Array => ConvertJsonArray(prop.Value),
                                 _ => prop.Value
                             };
                         }
@@ -864,6 +865,24 @@ namespace PercyIO.Selenium
                     merged[kvp.Key] = kvp.Value;
             }
             return merged;
+        }
+
+        private static object ConvertJsonArray(JsonElement array)
+        {
+            var items = array.EnumerateArray().ToList();
+            if (items.Count > 0 && items.All(item => item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out _)))
+            {
+                return items.Select(item => item.GetInt32()).ToList();
+            }
+
+            return items.Select(item => item.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Number => item.TryGetInt32(out int intVal) ? intVal : (object)item.GetDouble(),
+                JsonValueKind.String => item.GetString(),
+                _ => (object)item
+            }).ToList();
         }
 
         private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options)
