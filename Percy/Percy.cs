@@ -392,16 +392,135 @@ namespace PercyIO.Selenium
             };
         }
 
+        // Readiness gate: runs PercyDOM.waitForReady via
+        // ExecuteAsyncScript (callback signal) BEFORE serialize. Graceful on
+        // old CLIs that lack waitForReady. Returns diagnostics for attachment.
+        //
+        // Config precedence: per-snapshot options["readiness"] is shallow-
+        // merged over cliConfig.snapshot.readiness so a partial per-snapshot
+        // override inherits global keys (notably preset: disabled).
+        internal static object? WaitForReady(WebDriver driver, Dictionary<string, object>? options)
+        {
+            var readiness = ResolveReadinessConfig(options);
+            string readinessJson = JsonSerializer.Serialize(readiness);
+
+            if (readiness.TryGetValue("preset", out var preset) && (preset as string) == "disabled")
+            {
+                return null;
+            }
+
+            // Match the driver's async-script timeout to readiness.timeoutMs so
+            // a higher user-configured timeout isn't silently capped by WebDriver.
+            TimeSpan? previousTimeout = null;
+            if (readiness.TryGetValue("timeoutMs", out var timeoutObj) &&
+                TryToLong(timeoutObj, out long timeoutMs) && timeoutMs > 0)
+            {
+                try
+                {
+                    previousTimeout = driver.Manage().Timeouts().AsynchronousJavaScript;
+                    driver.Manage().Timeouts().AsynchronousJavaScript =
+                        TimeSpan.FromMilliseconds(timeoutMs + 2000);
+                }
+                catch { previousTimeout = null; /* best-effort */ }
+            }
+
+            string script =
+                "var cfg = " + readinessJson + ";"
+                + "var done = arguments[arguments.length - 1];"
+                + "try {"
+                + "  if (typeof PercyDOM !== 'undefined' && typeof PercyDOM.waitForReady === 'function') {"
+                + "    PercyDOM.waitForReady(cfg).then(function(r){ done(r); }).catch(function(){ done(); });"
+                + "  } else { done(); }"
+                + "} catch (e) { done(); }";
+            try
+            {
+                return driver.ExecuteAsyncScript(script);
+            }
+            catch (Exception e)
+            {
+                Log($"waitForReady failed, proceeding to serialize: {e.Message}", "debug");
+                return null;
+            }
+            finally
+            {
+                if (previousTimeout.HasValue)
+                {
+                    try { driver.Manage().Timeouts().AsynchronousJavaScript = previousTimeout.Value; }
+                    catch { /* best-effort */ }
+                }
+            }
+        }
+
+        private static bool TryToLong(object? value, out long result)
+        {
+            result = 0;
+            if (value == null) return false;
+            try { result = Convert.ToInt64(value); return true; }
+            catch { return false; }
+        }
+
+        // Shallow-merge of global (cliConfig.snapshot.readiness) and per-snapshot
+        // (options["readiness"]) readiness config. Per-snapshot keys win.
+        private static Dictionary<string, object?> ResolveReadinessConfig(Dictionary<string, object>? options)
+        {
+            var merged = new Dictionary<string, object?>();
+            if (cliConfig is JsonElement cfg &&
+                cfg.ValueKind == JsonValueKind.Object &&
+                cfg.TryGetProperty("snapshot", out JsonElement snap) &&
+                snap.ValueKind == JsonValueKind.Object &&
+                snap.TryGetProperty("readiness", out JsonElement rd) &&
+                rd.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in rd.EnumerateObject())
+                {
+                    merged[prop.Name] = JsonElementToObject(prop.Value);
+                }
+            }
+            if (options != null && options.TryGetValue("readiness", out var perSnapshot) && perSnapshot is Dictionary<string, object> perDict)
+            {
+                foreach (var kv in perDict) merged[kv.Key] = kv.Value;
+            }
+            return merged;
+        }
+
+        private static object? JsonElementToObject(JsonElement el)
+        {
+            return el.ValueKind switch
+            {
+                JsonValueKind.String => el.GetString(),
+                JsonValueKind.Number => el.TryGetInt64(out var l) ? (object)l : el.GetDouble(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null,
+                _ => el.GetRawText()
+            };
+        }
+
         private static dynamic getSerializedDom(
             WebDriver driver,
             object cookies,
             Dictionary<string, object>? options,
             string? domJs = null)
         {
-            var opts = JsonSerializer.Serialize(options);
+            // Readiness gate before serialize. Graceful on old CLI.
+            object? readinessDiagnostics = WaitForReady(driver, options);
+
+            // Strip `readiness` from forwarded serialize args — it's consumed by
+            // WaitForReady upstream, not a PercyDOM.serialize argument.
+            var serializeOptions = options;
+            if (options != null && options.ContainsKey("readiness"))
+            {
+                serializeOptions = new Dictionary<string, object>(options);
+                serializeOptions.Remove("readiness");
+            }
+            var opts = JsonSerializer.Serialize(serializeOptions);
             string script = $"return PercyDOM.serialize({opts})";
             var domSnapshot = (Dictionary<string, object>)driver.ExecuteScript(script);
             domSnapshot["cookies"] = cookies;
+            if (readinessDiagnostics != null)
+            {
+                domSnapshot["readiness_diagnostics"] = readinessDiagnostics;
+            }
 
             // Process CORS iframes when DOM script is available
             if (!string.IsNullOrEmpty(domJs))
@@ -819,7 +938,14 @@ namespace PercyIO.Selenium
 
                 if (options != null)
                     foreach (KeyValuePair<string, object> o in options)
+                    {
+                        // `readiness` is SDK-local — the CLI already has it via
+                        // healthcheck. Strip from POST body so we don't round-
+                        // trip and we stay forward-compatible with future
+                        // CLI-side validators.
+                        if (o.Key == "readiness") continue;
                         snapshotOptions.Add(o.Key, o.Value);
+                    }
 
                 dynamic res = Request("/percy/snapshot", snapshotOptions);
                 dynamic data = JsonSerializer.Deserialize<object>(res.content);
