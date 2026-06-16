@@ -883,8 +883,13 @@ namespace PercyIO.Selenium
                     }
                     return dict;
                 case JsonValueKind.Array:
+                    var items = el.EnumerateArray().ToList();
+                    // All-integer arrays (e.g. config `widths`) must stay List<int> so
+                    // downstream consumers like CaptureResponsiveDom can use them directly.
+                    if (items.Count > 0 && items.All(i => i.ValueKind == JsonValueKind.Number && i.TryGetInt32(out _)))
+                        return items.Select(i => i.GetInt32()).ToList();
                     var list = new List<object>();
-                    foreach (JsonElement item in el.EnumerateArray())
+                    foreach (JsonElement item in items)
                     {
                         var converted = JsonElementToObjectDeep(item);
                         if (converted != null)
