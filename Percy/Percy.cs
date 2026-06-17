@@ -76,7 +76,10 @@ namespace PercyIO.Selenium
         }
 
         private static readonly object _httpLock = new object();
-        private static HttpClient? _http;
+        // volatile so the unlocked read in getHttpClient sees a fully-published
+        // HttpClient (Timeout set) before the field reference becomes visible
+        // to other threads on weak memory models (e.g. ARM).
+        private static volatile HttpClient? _http;
 
         private static string? sessionType = null;
         private static object? eligibleWidths;
@@ -312,16 +315,57 @@ namespace PercyIO.Selenium
 
             return region;
         }
-        private static bool IsUnsupportedIframeSrc(string? src)
+        // Default cap on nested CORS iframe recursion. Inlined from @percy/sdk-utils
+        // (DEFAULT_MAX_FRAME_DEPTH) because .NET has no equivalent package.
+        internal const int DEFAULT_MAX_FRAME_DEPTH = 5;
+        internal const int MAX_ALLOWED_FRAME_DEPTH = 10;
+
+        // In-browser script that enumerates iframes and reports each frame's src,
+        // srcdoc, percyElementId, data-percy-ignore presence, and whether it matches
+        // any ignore selector. Returned as a JSON array (List<object> of Dictionaries
+        // when read back through Selenium's executor).
+        internal const string ENUMERATE_IFRAMES_SCRIPT =
+            "var selectors = arguments[0] || [];" +
+            "var iframes = document.querySelectorAll('iframe');" +
+            "var result = [];" +
+            "for (var i = 0; i < iframes.length; i++) {" +
+            "  var frame = iframes[i];" +
+            "  var matchesIgnore = false;" +
+            "  for (var j = 0; j < selectors.length; j++) {" +
+            "    try { if (frame.matches(selectors[j])) { matchesIgnore = true; break; } } catch (e) {}" +
+            "  }" +
+            "  result.push({" +
+            "    src: frame.src || ''," +
+            "    srcdoc: frame.getAttribute('srcdoc')," +
+            "    percyElementId: frame.getAttribute('data-percy-element-id')," +
+            "    dataPercyIgnore: frame.hasAttribute('data-percy-ignore')," +
+            "    matchesIgnoreSelector: matchesIgnore," +
+            "    index: i" +
+            "  });" +
+            "}" +
+            "return result;";
+
+        internal static bool IsUnsupportedIframeSrc(string? src)
         {
-            return string.IsNullOrEmpty(src) ||
-                    src.StartsWith("javascript:", StringComparison.OrdinalIgnoreCase) ||
-                    src.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
-                    src.StartsWith("vbscript:", StringComparison.OrdinalIgnoreCase);
+            if (string.IsNullOrEmpty(src)) return true;
+            // Canonical list mirrors @percy/sdk-utils BROWSER_INTERNAL_PREFIXES and
+            // the protractor port (#708). `file:` is included to block local-FS
+            // iframes that could leak filesystem content into snapshots.
+            string[] prefixes = {
+                "about:", "chrome:", "chrome-extension:", "devtools:",
+                "edge:", "opera:", "view-source:", "data:", "javascript:",
+                "blob:", "vbscript:", "file:"
+            };
+            foreach (var p in prefixes)
+            {
+                if (src.StartsWith(p, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
-        private static string GetOrigin(string url)
+        internal static string GetOrigin(string? url)
         {
+            if (string.IsNullOrEmpty(url)) return "";
             try
             {
                 Uri uri = new Uri(url);
@@ -333,63 +377,659 @@ namespace PercyIO.Selenium
             }
         }
 
-        private static Dictionary<string, object>? ProcessFrame(
-            WebDriver driver,
-            IWebElement frameElement,
-            Dictionary<string, object>? options,
-            string domJs)
+        // Clamp user-supplied iframe nesting depth to a safe range. Mirrors
+        // @percy/sdk-utils clampFrameDepth and the JS SDKs:
+        //   * depth <= 0   -> "use default" (DEFAULT_MAX_FRAME_DEPTH = 5).
+        //                    `0` is deliberately treated as "unset / use default"
+        //                    rather than "disable iframe capture" — matching
+        //                    sdk-utils so users who explicitly pass `0` (e.g.
+        //                    from a config file with an unset value) get the
+        //                    standard depth instead of silently disabling
+        //                    capture. To disable nested capture, omit the
+        //                    option or use `data-percy-ignore` /
+        //                    `ignoreIframeSelectors`.
+        //   * depth >  MAX_ALLOWED_FRAME_DEPTH -> capped at the hard ceiling.
+        //   * otherwise    -> returned as-is.
+        // If this semantic ever needs to change to "0 disables", do it across
+        // all Percy SDKs at once via sdk-utils first.
+        internal static int ClampFrameDepth(int depth, int defaultMax = DEFAULT_MAX_FRAME_DEPTH)
         {
-            // Read attributes while still in parent context — these calls will
-            // fail if made after switchTo().frame().
-            string? frameUrl = frameElement.GetAttribute("src") ?? "unknown-src";
-            Log($"processFrame: checking iframe src=\"{frameUrl}\"", "debug");
+            // Intentionally maps 0 -> default (see comment above). Negative
+            // values also collapse here as a defensive fallback.
+            if (depth <= 0) return defaultMax;
+            if (depth > MAX_ALLOWED_FRAME_DEPTH) return MAX_ALLOWED_FRAME_DEPTH;
+            return depth;
+        }
 
-            string? percyElementId = frameElement.GetAttribute("data-percy-element-id");
-            Log($"processFrame: data-percy-element-id=\"{percyElementId}\" for src=\"{frameUrl}\"", "debug");
-            if (string.IsNullOrEmpty(percyElementId))
+        // Accept either a single string or a list of strings as the
+        // ignoreIframeSelectors input, normalize to a flat List<string>, and
+        // strip any non-string / empty entries.
+        internal static List<string> NormalizeIgnoreSelectors(object? input)
+        {
+            var result = new List<string>();
+            if (input == null) return result;
+            if (input is string s)
             {
-                Log($"Skipping frame {frameUrl}: no matching percyElementId found", "debug");
-                return null;
+                if (!string.IsNullOrWhiteSpace(s)) result.Add(s);
+                return result;
             }
+            if (input is System.Collections.IEnumerable enumerable)
+            {
+                foreach (var item in enumerable)
+                {
+                    if (item is string str && !string.IsNullOrWhiteSpace(str))
+                        result.Add(str);
+                }
+            }
+            return result;
+        }
 
-            Dictionary<string, object>? iframeSnapshot = null;
-            try
+        private static int ResolveMaxFrameDepth(Dictionary<string, object>? options)
+        {
+            int? candidate = null;
+            if (options != null && options.TryGetValue("maxIframeDepth", out object? v) && v != null)
             {
-                driver.SwitchTo().Frame(frameElement);
-                // Inject Percy DOM into the cross-origin frame context
-                driver.ExecuteScript(domJs);
-                // Serialize inside the frame; enableJavaScript=true is required for CORS iframes
-                var iframeOptions = options != null
-                    ? new Dictionary<string, object>(options)
-                    : new Dictionary<string, object>();
-                iframeOptions["enableJavaScript"] = true;
-                var iframeOpts = JsonSerializer.Serialize(iframeOptions);
-                iframeSnapshot = (Dictionary<string, object>)driver.ExecuteScript(
-                    $"return PercyDOM.serialize({iframeOpts})");
+                if (v is int iv) candidate = iv;
+                else if (v is long lv) candidate = (int)lv;
+                else if (int.TryParse(v.ToString(), out int parsed)) candidate = parsed;
             }
-            catch (Exception e)
-            {
-                Log($"Failed to process cross-origin frame {frameUrl}: {e.Message}", "error");
-                throw new Exception($"Failed to process cross-origin frame {frameUrl}", e);
-            }
-            finally
+            if (candidate == null && cliConfig != null)
             {
                 try
                 {
-                    driver.SwitchTo().DefaultContent();
+                    JsonElement config = (JsonElement)cliConfig;
+                    if (config.TryGetProperty("snapshot", out JsonElement snap) &&
+                        snap.TryGetProperty("maxIframeDepth", out JsonElement md) &&
+                        md.ValueKind == JsonValueKind.Number)
+                    {
+                        candidate = md.GetInt32();
+                    }
                 }
-                catch (Exception err)
+                catch { /* fall through */ }
+            }
+            return ClampFrameDepth(candidate ?? DEFAULT_MAX_FRAME_DEPTH);
+        }
+
+        private static List<string> ResolveIgnoreSelectors(Dictionary<string, object>? options)
+        {
+            object? raw = null;
+            if (options != null && options.TryGetValue("ignoreIframeSelectors", out object? optVal))
+            {
+                raw = optVal;
+            }
+            else if (cliConfig != null)
+            {
+                try
                 {
-                    Log($"Fatal: could not exit iframe context after processing \"{frameUrl}\". Driver may be unstable. {err.Message}", "error");
+                    JsonElement config = (JsonElement)cliConfig;
+                    if (config.TryGetProperty("snapshot", out JsonElement snap) &&
+                        snap.TryGetProperty("ignoreIframeSelectors", out JsonElement sel))
+                    {
+                        if (sel.ValueKind == JsonValueKind.String)
+                        {
+                            raw = sel.GetString();
+                        }
+                        else if (sel.ValueKind == JsonValueKind.Array)
+                        {
+                            var list = new List<string>();
+                            foreach (var item in sel.EnumerateArray())
+                                if (item.ValueKind == JsonValueKind.String) list.Add(item.GetString() ?? "");
+                            raw = list;
+                        }
+                    }
+                }
+                catch { /* fall through */ }
+            }
+            return NormalizeIgnoreSelectors(raw);
+        }
+
+        // Raised inside ProcessFrameTree when SwitchTo().ParentFrame() (or its
+        // fallback) cannot reliably return us to the parent context. Carries
+        // whatever frames the recursion managed to capture before the failure
+        // so callers can still ship a partial result.
+        public class PercyContextLostException : Exception
+        {
+            public List<Dictionary<string, object>> PartialCapture { get; set; }
+            public PercyContextLostException(string message, Exception? inner = null)
+                : base(message, inner)
+            {
+                PartialCapture = new List<Dictionary<string, object>>();
+            }
+        }
+
+        // Metadata for an iframe discovered via ENUMERATE_IFRAMES_SCRIPT. Built from
+        // the raw Dictionary returned by the in-browser script so the rest of the
+        // C# code can deal with typed fields instead of dynamic property access.
+        internal class IframeInfo
+        {
+            public string Src = "";
+            public string? Srcdoc;
+            public string? PercyElementId;
+            public bool DataPercyIgnore;
+            public bool MatchesIgnoreSelector;
+            public int Index;
+
+            public static IframeInfo FromDictionary(IDictionary<string, object?> d)
+            {
+                var info = new IframeInfo();
+                if (d.TryGetValue("src", out object? src) && src != null) info.Src = src.ToString() ?? "";
+                if (d.TryGetValue("srcdoc", out object? sd)) info.Srcdoc = sd?.ToString();
+                if (d.TryGetValue("percyElementId", out object? pid)) info.PercyElementId = pid?.ToString();
+                if (d.TryGetValue("dataPercyIgnore", out object? dpi)) info.DataPercyIgnore = Convert.ToBoolean(dpi);
+                if (d.TryGetValue("matchesIgnoreSelector", out object? mis)) info.MatchesIgnoreSelector = Convert.ToBoolean(mis);
+                if (d.TryGetValue("index", out object? idx) && idx != null && int.TryParse(idx.ToString(), out int parsed))
+                    info.Index = parsed;
+                return info;
+            }
+        }
+
+        // Enumerate iframes in the current frame context. Returns a list of
+        // IframeInfo. Each entry carries enough metadata for ShouldSkipIframe to
+        // decide whether to recurse without re-querying the DOM.
+        private static List<IframeInfo> EnumerateIframes(WebDriver driver, List<string> ignoreSelectors)
+        {
+            var raw = driver.ExecuteScript(ENUMERATE_IFRAMES_SCRIPT, ignoreSelectors);
+            var result = new List<IframeInfo>();
+            var items = raw as System.Collections.IEnumerable;
+            if (items == null) return result;
+            foreach (var item in items)
+            {
+                if (item is IDictionary<string, object?> dict)
+                {
+                    result.Add(IframeInfo.FromDictionary(dict));
+                }
+                else if (item is Dictionary<string, object> d2)
+                {
+                    var coerced = new Dictionary<string, object?>();
+                    foreach (var kv in d2) coerced[kv.Key] = kv.Value;
+                    result.Add(IframeInfo.FromDictionary(coerced));
+                }
+            }
+            return result;
+        }
+
+        // Decide whether to skip a discovered iframe, comparing its origin to
+        // the IMMEDIATE parent's origin (passed in by the caller) rather than
+        // the top-level page origin — this is how nested CORS iframes get
+        // detected when the parent itself is cross-origin.
+        internal static bool ShouldSkipIframe(IframeInfo iframe, string parentOrigin)
+        {
+            if (iframe.DataPercyIgnore)
+            {
+                Log($"Skipping iframe marked with data-percy-ignore: {iframe.Src}", "debug");
+                return true;
+            }
+            if (iframe.MatchesIgnoreSelector)
+            {
+                Log($"Skipping iframe matching ignoreIframeSelectors: {iframe.Src}", "debug");
+                return true;
+            }
+            if (string.IsNullOrEmpty(iframe.Src) || IsUnsupportedIframeSrc(iframe.Src))
+            {
+                if (!string.IsNullOrEmpty(iframe.Src))
+                    Log($"Skipping unsupported iframe src: {iframe.Src}", "debug");
+                return true;
+            }
+            if (!string.IsNullOrEmpty(iframe.Srcdoc))
+            {
+                Log($"Skipping srcdoc iframe at index {iframe.Index}", "debug");
+                return true;
+            }
+            string frameOrigin = GetOrigin(iframe.Src);
+            if (string.IsNullOrEmpty(frameOrigin))
+            {
+                Log($"Skipping iframe with invalid URL: {iframe.Src}", "debug");
+                return true;
+            }
+            if (frameOrigin == parentOrigin)
+            {
+                Log($"Skipping same-origin iframe: {iframe.Src}", "debug");
+                return true;
+            }
+            if (string.IsNullOrEmpty(iframe.PercyElementId))
+            {
+                Log($"Skipping cross-origin iframe without data-percy-element-id: {iframe.Src}", "debug");
+                return true;
+            }
+            return false;
+        }
+
+        // Context threaded through recursive ProcessFrameTree calls so we don't
+        // re-resolve options/depth on every level.
+        internal class FrameTreeContext
+        {
+            public int MaxFrameDepth;
+            public List<string> IgnoreSelectors = new List<string>();
+            public Dictionary<string, object> SerializeOptions = new Dictionary<string, object>();
+            public string DomJs = "";
+        }
+
+        // Switch into the iframe described by `info`, serialize its DOM, then
+        // recurse into any nested cross-origin iframes. Restores the parent
+        // context on exit via SwitchTo().ParentFrame(). Bounded by
+        // ctx.MaxFrameDepth. `ancestorUrls` carries the chain of frame URLs
+        // above us so cyclic A->B->A graphs terminate after one capture per
+        // unique URL instead of running to MAX depth.
+        private static List<Dictionary<string, object>> ProcessFrameTree(
+            WebDriver driver,
+            IframeInfo info,
+            int depth,
+            HashSet<string> ancestorUrls,
+            FrameTreeContext ctx)
+        {
+            var collected = new List<Dictionary<string, object>>();
+            if (depth > ctx.MaxFrameDepth)
+            {
+                Log($"Reached max iframe nesting depth ({ctx.MaxFrameDepth}); stopping at {info.Src}", "debug");
+                return collected;
+            }
+            if (ancestorUrls.Contains(info.Src))
+            {
+                Log($"Skipping cyclic iframe ({info.Src} appears in ancestor chain)", "debug");
+                return collected;
+            }
+
+            bool switchedIn = false;
+            Exception? capturedError = null;
+            try
+            {
+                Log($"Processing cross-origin iframe (depth {depth}): {info.Src}", "debug");
+
+                // Look up the iframe element by data-percy-element-id rather than
+                // index so we tolerate DOM reorders between enumeration and switch.
+                IWebElement? element = null;
+                try
+                {
+                    element = (IWebElement)driver.ExecuteScript(
+                        "return document.querySelector('iframe[data-percy-element-id=\"' + arguments[0] + '\"]');",
+                        info.PercyElementId);
+                }
+                catch (Exception e)
+                {
+                    Log($"Could not resolve iframe element for percyElementId {info.PercyElementId}: {e.Message}", "warn");
+                }
+                if (element == null)
+                {
+                    Log($"Could not find iframe element with data-percy-element-id: {info.PercyElementId}", "warn");
+                    return collected;
+                }
+
+                driver.SwitchTo().Frame(element);
+                switchedIn = true;
+
+                // Post-switch URL re-check: the frame may have navigated to an
+                // unsupported URL (about:blank, javascript:, data:, ...) after the
+                // src attribute was first read. Skip those before serializing.
+                string? frameUrl = null;
+                try
+                {
+                    frameUrl = driver.ExecuteScript("return document.URL")?.ToString();
+                }
+                catch (Exception e)
+                {
+                    Log($"Could not read document.URL inside frame {info.Src}: {e.Message}", "debug");
+                }
+                if (!string.IsNullOrEmpty(frameUrl) && IsUnsupportedIframeSrc(frameUrl))
+                {
+                    Log($"Skipping iframe whose document loaded an unsupported URL: {frameUrl}", "debug");
+                    return collected;
+                }
+                if (string.IsNullOrEmpty(frameUrl)) frameUrl = info.Src;
+
+                // Inject PercyDOM into the cross-origin frame and serialize.
+                // enableJavaScript=true is mandatory: it disables the in-DOM
+                // iframe serializer (we recurse manually instead).
+                driver.ExecuteScript(ctx.DomJs);
+                var serializeOptions = new Dictionary<string, object>(ctx.SerializeOptions)
+                {
+                    ["enableJavaScript"] = true
+                };
+                string optsJson = JsonSerializer.Serialize(serializeOptions);
+                Dictionary<string, object>? snapshot = null;
+                try
+                {
+                    snapshot = (Dictionary<string, object>)driver.ExecuteScript(
+                        $"return PercyDOM.serialize({optsJson})");
+                }
+                catch (Exception e)
+                {
+                    Log($"Serialization failed for frame {info.Src}: {e.Message}", "warn");
+                    return collected;
+                }
+
+                if (snapshot == null)
+                {
+                    Log($"Serialization returned empty result for frame: {info.Src}", "warn");
+                    return collected;
+                }
+
+                Log($"Captured cross-origin iframe (depth {depth}): {frameUrl}", "debug");
+
+                collected.Add(new Dictionary<string, object>
+                {
+                    ["frameUrl"] = frameUrl,
+                    ["iframeData"] = new Dictionary<string, object> { ["percyElementId"] = info.PercyElementId! },
+                    ["iframeSnapshot"] = snapshot
+                });
+
+                // Recurse into nested cross-origin iframes if we haven't hit the cap.
+                if (depth < ctx.MaxFrameDepth)
+                {
+                    string currentOrigin = GetOrigin(frameUrl);
+                    var children = EnumerateIframes(driver, ctx.IgnoreSelectors);
+                    var nextAncestors = new HashSet<string>(ancestorUrls);
+                    nextAncestors.Add(frameUrl);
+                    nextAncestors.Add(info.Src);
+                    foreach (var child in children)
+                    {
+                        if (ShouldSkipIframe(child, currentOrigin)) continue;
+                        var nested = ProcessFrameTree(driver, child, depth + 1, nextAncestors, ctx);
+                        if (nested.Count > 0) collected.AddRange(nested);
+                    }
+                }
+
+                return collected;
+            }
+            catch (PercyContextLostException ctxLost)
+            {
+                // Merge any partial capture into the inner exception's payload
+                // before propagating, so the top-level caller gets every frame
+                // serialized before the context was lost.
+                if (ctxLost.PartialCapture != null && ctxLost.PartialCapture.Count > 0)
+                {
+                    collected.AddRange(ctxLost.PartialCapture);
+                }
+                ctxLost.PartialCapture = collected;
+                throw;
+            }
+            catch (Exception e)
+            {
+                Log($"Failed to process cross-origin iframe {info.Src}: {e.Message}", "warn");
+                capturedError = e;
+                return collected;
+            }
+            finally
+            {
+                if (switchedIn)
+                {
+                    try
+                    {
+                        driver.SwitchTo().ParentFrame();
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"Failed to switch back to parent frame: {e.Message}", "warn");
+                        try { driver.SwitchTo().DefaultContent(); } catch { /* ignore */ }
+                        if (depth > 1)
+                        {
+                            var err = new PercyContextLostException(
+                                $"Lost parent frame context: {e.Message}", capturedError);
+                            err.PartialCapture = collected;
+                            throw err;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Walk top-level iframes, recurse via ProcessFrameTree, and roll up the
+        // results. Mirrors @percy/sdk-utils captureCorsIframes.
+        private static List<Dictionary<string, object>> CaptureCorsIframes(
+            WebDriver driver,
+            string pageUrl,
+            FrameTreeContext ctx)
+        {
+            var corsIframes = new List<Dictionary<string, object>>();
+            try
+            {
+                var topLevel = EnumerateIframes(driver, ctx.IgnoreSelectors);
+                if (topLevel.Count == 0) return corsIframes;
+
+                Log($"Found {topLevel.Count} top-level iframe(s)", "debug");
+                string pageOrigin = GetOrigin(pageUrl);
+
+                foreach (var iframe in topLevel)
+                {
+                    if (ShouldSkipIframe(iframe, pageOrigin)) continue;
+                    try
+                    {
+                        var entries = ProcessFrameTree(driver, iframe, 1,
+                            new HashSet<string> { pageUrl }, ctx);
+                        if (entries.Count > 0) corsIframes.AddRange(entries);
+                    }
+                    catch (PercyContextLostException ctxLost)
+                    {
+                        Log("Aborting further nested CORS capture due to lost frame context", "warn");
+                        if (ctxLost.PartialCapture != null && ctxLost.PartialCapture.Count > 0)
+                            corsIframes.AddRange(ctxLost.PartialCapture);
+                        break;
+                    }
+                }
+
+                Log($"Captured {corsIframes.Count} cross-origin iframe(s)", "debug");
+            }
+            catch (Exception e)
+            {
+                Log($"Error capturing CORS iframes: {e.Message}", "warn");
+            }
+            return corsIframes;
+        }
+
+        // Use Chrome DevTools Protocol to discover closed shadow roots (which are
+        // invisible to JS — `el.shadowRoot` is null) and expose each one to the
+        // page via a window-bound WeakMap. PercyDOM.serialize() looks up the map
+        // when cloning shadow hosts so the closed content is included in the
+        // snapshot. No-op on non-Chrome drivers / when CDP isn't reachable.
+        // Re-prime after page reloads — the WeakMap lives on `window` and is
+        // wiped along with the rest of the document.
+        internal static void ExposeClosedShadowRoots(WebDriver driver)
+        {
+            if (!IsChromeBrowser(driver)) return;
+            MethodInfo? executeCdp = driver.GetType().GetMethod(
+                "ExecuteCdpCommand", new[] { typeof(string), typeof(Dictionary<string, object>) });
+            if (executeCdp == null)
+            {
+                Log("ExecuteCdpCommand unavailable on driver; skipping closed shadow root exposure", "debug");
+                return;
+            }
+
+            // Adapt the reflected MethodInfo to a Func so the core flow can be
+            // unit-tested with a fake invoker. ScriptRunner is a small adapter
+            // around driver.ExecuteScript for the same reason.
+            Func<string, Dictionary<string, object>, object?> cdpInvoker = (cmd, args) =>
+                executeCdp.Invoke(driver, new object[] { cmd, args ?? new Dictionary<string, object>() });
+            Action<string> scriptRunner = (script) => driver.ExecuteScript(script);
+            Func<string> pageUrlGetter = () => {
+                try { return driver.Url ?? ""; }
+                catch (Exception e) {
+                    Log($"Could not read driver.Url for shadow walk origin: {e.Message}", "debug");
+                    return "";
+                }
+            };
+
+            RunClosedShadowRootExposure(cdpInvoker, scriptRunner, pageUrlGetter);
+        }
+
+        // Pure-logic core of ExposeClosedShadowRoots, factored out so unit
+        // tests can drive it with a fake CDP invoker and assert that
+        // DOM.disable always runs in the finally branch when DOM.enable
+        // succeeded — and stays unsent when DOM.enable itself threw.
+        internal static void RunClosedShadowRootExposure(
+            Func<string, Dictionary<string, object>, object?> cdpInvoker,
+            Action<string> scriptRunner,
+            Func<string> pageUrlGetter)
+        {
+            bool domEnabled = false;
+            try
+            {
+                cdpInvoker("DOM.enable", new Dictionary<string, object>());
+                domEnabled = true;
+
+                var getDocResult = cdpInvoker("DOM.getDocument",
+                    new Dictionary<string, object> { ["depth"] = -1, ["pierce"] = true });
+                if (getDocResult == null) return;
+
+                // The .NET ExecuteCdpCommand returns a Dictionary<string, object>
+                // whose values are JSON-decoded. Pull out the root node and walk it.
+                var docDict = getDocResult as IDictionary<string, object>;
+                if (docDict == null || !docDict.TryGetValue("root", out object? rootObj) || rootObj == null)
+                    return;
+
+                // Compute the top-level page origin once so the walker can
+                // recurse INTO same-origin child frame documents (those share
+                // the parent's JS realm, so writing into window.__percyClosedShadowRoots
+                // works) but still skip cross-origin frames (different realm).
+                string pageOrigin = GetOrigin(pageUrlGetter() ?? "");
+
+                var closedPairs = new List<(long host, long shadow)>();
+                CollectClosedShadowRoots(rootObj, closedPairs, pageOrigin);
+
+                if (closedPairs.Count == 0) return;
+                Log($"Found {closedPairs.Count} closed shadow root(s), exposing via CDP", "debug");
+
+                // Prime the WeakMap on the page first (same key as PercyDOM uses).
+                scriptRunner(
+                    "window.__percyClosedShadowRoots = window.__percyClosedShadowRoots || new WeakMap();");
+
+                foreach (var pair in closedPairs)
+                {
+                    try
+                    {
+                        var hostResolve = cdpInvoker("DOM.resolveNode",
+                            new Dictionary<string, object> { ["backendNodeId"] = pair.host })
+                            as IDictionary<string, object>;
+                        var shadowResolve = cdpInvoker("DOM.resolveNode",
+                            new Dictionary<string, object> { ["backendNodeId"] = pair.shadow })
+                            as IDictionary<string, object>;
+                        string? hostObjectId = ExtractObjectId(hostResolve);
+                        string? shadowObjectId = ExtractObjectId(shadowResolve);
+                        if (hostObjectId == null || shadowObjectId == null) continue;
+
+                        var args = new List<object> {
+                            new Dictionary<string, object> { ["objectId"] = shadowObjectId }
+                        };
+                        cdpInvoker("Runtime.callFunctionOn", new Dictionary<string, object> {
+                            ["functionDeclaration"] = "function(shadowRoot) { window.__percyClosedShadowRoots.set(this, shadowRoot); }",
+                            ["objectId"] = hostObjectId,
+                            ["arguments"] = args
+                        });
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"Failed to expose one closed shadow root: {e.Message}", "debug");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Log($"Could not expose closed shadow roots via CDP: {e.Message}", "debug");
+            }
+            finally
+            {
+                // Release the DOM domain so subsequent CDP commands don't keep
+                // emitting DOM events for this session. Best-effort — we don't
+                // care if disable fails (session already closed, etc.).
+                // Only sent when DOM.enable previously succeeded; if DOM.enable
+                // itself threw, domEnabled stays false and we don't send a
+                // spurious DOM.disable.
+                if (domEnabled)
+                {
+                    try { cdpInvoker("DOM.disable", new Dictionary<string, object>()); }
+                    catch (Exception) { /* defensive */ }
+                }
+            }
+        }
+
+        // Walk a CDP DOM node tree collecting (hostBackendNodeId,
+        // shadowBackendNodeId) pairs for every closed shadow root.
+        //
+        // When the walker encounters an iframe node (CDP exposes the nested
+        // document as `contentDocument`), it decides whether to recurse based
+        // on the document's `documentURL`:
+        //   * Same origin as the top-level page  -> recurse INTO contentDocument.
+        //     The frame shares the parent's JS realm, so closed shadow roots
+        //     discovered inside it can be written into the same
+        //     window.__percyClosedShadowRoots WeakMap that PercyDOM.serialize
+        //     reads. Without this, same-origin iframes silently skipped the
+        //     entire closed-shadow walk.
+        //   * Cross origin  -> skip. Different JS realm; the host objectIds
+        //     resolved by DOM.resolveNode wouldn't belong to our page's
+        //     execution context anyway.
+        //   * pageOrigin empty / contentDocument missing documentURL -> skip,
+        //     defensive default (matches prior behavior).
+        internal static void CollectClosedShadowRoots(
+            object nodeObj, List<(long, long)> pairs, string pageOrigin)
+        {
+            var node = nodeObj as IDictionary<string, object>;
+            if (node == null) return;
+
+            // Child frame document handling. CDP attaches `contentDocument` to
+            // iframe / frame nodes. Decide whether to recurse into the nested
+            // document based on origin compared to the top-level page.
+            if (node.TryGetValue("contentDocument", out object? contentDocRaw) && contentDocRaw != null)
+            {
+                var contentDoc = contentDocRaw as IDictionary<string, object>;
+                if (contentDoc == null) return;
+                string? docUrl = contentDoc.TryGetValue("documentURL", out object? du) ? du?.ToString() : null;
+                if (string.IsNullOrEmpty(pageOrigin) || string.IsNullOrEmpty(docUrl))
+                {
+                    // Defensive: we can't prove same-origin, so skip — matches
+                    // pre-fix behavior for the unknown case.
+                    return;
+                }
+                string frameOrigin = GetOrigin(docUrl);
+                if (frameOrigin != pageOrigin)
+                {
+                    Log($"Skipping cross-origin frame document during closed-shadow walk: {docUrl}", "debug");
+                    return;
+                }
+                // Same-origin frame: walk into the contentDocument as if it
+                // were any other subtree. Closed shadow roots found inside
+                // share the parent window's __percyClosedShadowRoots map.
+                CollectClosedShadowRoots(contentDoc, pairs, pageOrigin);
+                // Continue with this node's own children/shadowRoots below
+                // (e.g. the iframe element itself could host a shadow root).
+            }
+
+            if (node.TryGetValue("shadowRoots", out object? srRaw) && srRaw is System.Collections.IEnumerable shadowRoots)
+            {
+                long? hostId = TryGetLong(node, "backendNodeId");
+                foreach (var srItem in shadowRoots)
+                {
+                    var sr = srItem as IDictionary<string, object>;
+                    if (sr == null) continue;
+                    string? type = sr.TryGetValue("shadowRootType", out object? t) ? t?.ToString() : null;
+                    long? shadowId = TryGetLong(sr, "backendNodeId");
+                    if (type == "closed" && hostId.HasValue && shadowId.HasValue)
+                    {
+                        pairs.Add((hostId.Value, shadowId.Value));
+                    }
+                    CollectClosedShadowRoots(sr, pairs, pageOrigin);
                 }
             }
 
-            return new Dictionary<string, object>
+            if (node.TryGetValue("children", out object? childrenRaw) && childrenRaw is System.Collections.IEnumerable children)
             {
-                { "iframeData", new Dictionary<string, object> { { "percyElementId", percyElementId } } },
-                { "iframeSnapshot", iframeSnapshot },
-                { "frameUrl", frameUrl }
-            };
+                foreach (var child in children) CollectClosedShadowRoots(child, pairs, pageOrigin);
+            }
+        }
+
+        private static long? TryGetLong(IDictionary<string, object> dict, string key)
+        {
+            if (!dict.TryGetValue(key, out object? raw) || raw == null) return null;
+            if (raw is long l) return l;
+            if (raw is int i) return i;
+            if (long.TryParse(raw.ToString(), out long parsed)) return parsed;
+            return null;
+        }
+
+        private static string? ExtractObjectId(IDictionary<string, object>? resolveResult)
+        {
+            if (resolveResult == null) return null;
+            if (!resolveResult.TryGetValue("object", out object? obj)) return null;
+            var objDict = obj as IDictionary<string, object>;
+            if (objDict == null) return null;
+            return objDict.TryGetValue("objectId", out object? id) ? id?.ToString() : null;
         }
 
         // Readiness gate: runs PercyDOM.waitForReady via
@@ -522,60 +1162,31 @@ namespace PercyIO.Selenium
                 domSnapshot["readiness_diagnostics"] = readinessDiagnostics;
             }
 
-            // Process CORS iframes when DOM script is available
+            // Process CORS iframes when DOM script is available. Uses the
+            // nested ProcessFrameTree pipeline so we capture multi-level
+            // cross-origin nesting, with cycle and depth guards, plus
+            // data-percy-ignore / ignoreIframeSelectors filtering.
             if (!string.IsNullOrEmpty(domJs))
             {
                 try
                 {
-                    string pageOrigin = GetOrigin(driver.Url);
-                    var iframes = driver.FindElements(By.TagName("iframe"));
-                    if (iframes.Count > 0)
+                    var ctx = new FrameTreeContext
                     {
-                        var processedFrames = new List<Dictionary<string, object>>();
-                        foreach (IWebElement frame in iframes)
-                        {
-                            string? frameSrc = frame.GetAttribute("src");
-                            if (IsUnsupportedIframeSrc(frameSrc))
-                                continue;
-
-                            string frameOrigin;
-                            try
-                            {
-                                Uri baseUri = new Uri(driver.Url);
-                                Uri resolvedUri = new Uri(baseUri, frameSrc);
-                                frameOrigin = GetOrigin(resolvedUri.ToString());
-                            }
-                            catch (Exception e)
-                            {
-                                Log($"Skipping iframe \"{frameSrc}\": {e.Message}", "debug");
-                                continue;
-                            }
-
-                            if (frameOrigin == pageOrigin)
-                                continue;
-
-                            try
-                            {
-                                var result = ProcessFrame(driver, frame, options, domJs);
-                                if (result != null)
-                                    processedFrames.Add(result);
-                            }
-                            catch (Exception e)
-                            {
-                                Log($"Skipping frame \"{frameSrc}\" due to error: {e.Message}", "debug");
-                                if (e.Message.Contains("Fatal"))
-                                    throw;
-                            }
-                        }
-                        if (processedFrames.Count > 0)
-                            domSnapshot["corsIframes"] = processedFrames;
-                    }
+                        MaxFrameDepth = ResolveMaxFrameDepth(options),
+                        IgnoreSelectors = ResolveIgnoreSelectors(options),
+                        SerializeOptions = options != null
+                            ? new Dictionary<string, object>(options)
+                            : new Dictionary<string, object>(),
+                        DomJs = domJs!
+                    };
+                    string pageUrl = driver.Url ?? "";
+                    var corsIframes = CaptureCorsIframes(driver, pageUrl, ctx);
+                    if (corsIframes.Count > 0)
+                        domSnapshot["corsIframes"] = corsIframes;
                 }
                 catch (Exception e)
                 {
                     Log($"Failed to process cross-origin iframes: {e.Message}", "debug");
-                    if (e.Message.Contains("Fatal"))
-                        throw;
                 }
             }
 
@@ -811,6 +1422,9 @@ namespace PercyIO.Selenium
                         {
                             driver.ExecuteScript(GetPercyDOM());
                         }
+                        // Re-prime the closed shadow root WeakMap — page reload
+                        // creates a fresh document and the previous map is gone.
+                        ExposeClosedShadowRoots(driver);
                         driver.ExecuteScript("PercyDOM.waitForResize()");
                         resizeCount = 0;
                     }
@@ -881,6 +1495,11 @@ namespace PercyIO.Selenium
                 // Ensure _dom is populated for CORS iframe processing
                 if (_dom == null)
                     _dom = GetPercyDOM();
+
+                // Expose closed shadow roots via CDP before serializing so
+                // PercyDOM.serialize() can pick them up through the WeakMap.
+                // Non-Chrome browsers and missing ExecuteCdpCommand are no-ops.
+                ExposeClosedShadowRoots(driver);
 
                 var cookies = driver.Manage().Cookies.AllCookies;
                 string opts = JsonSerializer.Serialize(options);

@@ -35,6 +35,7 @@ namespace PercyIO.Selenium.Tests
         }
     }
 
+    [Collection("HttpClientStateSerial")]
     public class UnitTests : IClassFixture<TestsFixture>
     {
         public readonly FirefoxDriver driver;
