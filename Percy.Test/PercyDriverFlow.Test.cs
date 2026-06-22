@@ -18,9 +18,14 @@ namespace PercyIO.Selenium.Tests
     // SwitchTo, Manage().Window/Cookies/Timeouts, Navigate().Refresh) run through
     // genuine Selenium code. @percy/cli HTTP is mocked with RichardSzalay.MockHttp.
     //
-    // Serialised with PercyLogicSerial because they mutate Percy's static state
-    // (_http, _enabled, sessionType, cliConfig).
-    [Collection("PercyLogicSerial")]
+    // Serialised in the single HttpClientStateSerial collection (shared with
+    // CorsIframesTest, UnitTests and PercyDriverTest) because they all mutate
+    // Percy's process-wide static state (_http, _dom, _enabled, sessionType,
+    // cliConfig). Using ONE collection for every state-touching class guarantees
+    // they never run concurrently and race on those statics — distinct
+    // collections parallelize across each other even when each is internally
+    // serial.
+    [Collection("HttpClientStateSerial")]
     public class PercyDriverFlowTest : IDisposable
     {
         private readonly Func<bool> _oldEnabled;
@@ -202,25 +207,52 @@ namespace PercyIO.Selenium.Tests
 
         // ===== Percy.Snapshot — CORS iframe processing =========================
 
+        // A single cross-origin iframe entry as returned by ENUMERATE_IFRAMES_SCRIPT.
+        private static object IframeEnumEntry(
+            string src = "https://cross.example.com/frame.html",
+            string? percyElementId = "percy-id-1",
+            bool dataPercyIgnore = false,
+            bool matchesIgnoreSelector = false,
+            string? srcdoc = null) =>
+            new Dictionary<string, object?>
+            {
+                { "src", src },
+                { "srcdoc", srcdoc },
+                { "percyElementId", percyElementId },
+                { "dataPercyIgnore", dataPercyIgnore },
+                { "matchesIgnoreSelector", matchesIgnoreSelector },
+                { "index", 0L }
+            };
+
         private FakeWebDriver WebDriverWithCrossOriginIframe()
         {
+            int enumCalls = 0;
             var driver = new FakeWebDriver(FakeDriverFactory.FirefoxCaps());
             driver.Handler = (cmd, p) =>
             {
                 if (cmd == DriverCommand.GetCurrentUrl) return "http://localhost:5338/page";
-                if (cmd == DriverCommand.FindElements)
-                    return new object[] { FakeDriverFactory.IframeElement };
                 if (cmd == DriverCommand.GetAllCookies) return new object[0];
                 if (cmd == DriverCommand.SwitchToFrame) return null;
+                if (cmd == DriverCommand.SwitchToParentFrame) return null;
                 if (cmd == DriverCommand.ExecuteScript || cmd == DriverCommand.ExecuteAsyncScript)
                 {
                     string s = p != null && p.ContainsKey("script") ? p["script"].ToString() : "";
                     if (s.Contains("!!window.PercyDOM")) return true;
+                    if (s.Contains("document.querySelectorAll('iframe')"))
+                    {
+                        // Top-level enumeration yields one cross-origin iframe; the
+                        // nested enumeration (inside the frame) yields none so the
+                        // recursion terminates after a single capture.
+                        enumCalls++;
+                        return enumCalls == 1
+                            ? new object[] { IframeEnumEntry() }
+                            : new object[0];
+                    }
+                    // Resolve the iframe element by data-percy-element-id.
+                    if (s.Contains("querySelector") && s.Contains("data-percy-element-id"))
+                        return FakeDriverFactory.IframeElement;
                     if (s.Contains("document.URL")) return "http://localhost:5338/page";
                     if (s.Contains("PercyDOM.serialize")) return new Dictionary<string, object> { { "html", "<f/>" } };
-                    string attr = FakeDriverFactory.AttributeName(p);
-                    if (attr == "src") return "https://cross.example.com/frame.html";
-                    if (attr == "data-percy-element-id") return "percy-id-1";
                     return null;
                 }
                 return null;
@@ -238,9 +270,11 @@ namespace PercyIO.Selenium.Tests
             var driver = WebDriverWithCrossOriginIframe();
             Percy.Snapshot(driver, "CORS Iframe");
 
-            // Iframes were enumerated and the SDK switched into & back out of a frame.
-            Assert.Contains(DriverCommand.FindElements, driver.Commands);
+            // Iframes were enumerated (querySelectorAll('iframe') ran) and the SDK
+            // switched into the cross-origin frame and back out to its parent.
+            Assert.Contains(driver.Scripts, s => s.Contains("document.querySelectorAll('iframe')"));
             Assert.Contains(DriverCommand.SwitchToFrame, driver.Commands);
+            Assert.Contains(DriverCommand.SwitchToParentFrame, driver.Commands);
         }
 
         [Fact]
@@ -879,22 +913,24 @@ namespace PercyIO.Selenium.Tests
             driver.Handler = (cmd, p) =>
             {
                 if (cmd == DriverCommand.GetCurrentUrl) return "http://localhost:5338/page";
-                if (cmd == DriverCommand.FindElements) return new object[] { FakeDriverFactory.IframeElement };
                 if (cmd == DriverCommand.GetAllCookies) return new object[0];
                 if (cmd == DriverCommand.SwitchToFrame) return null;
+                if (cmd == DriverCommand.SwitchToParentFrame) return null;
                 if (cmd == DriverCommand.ExecuteScript || cmd == DriverCommand.ExecuteAsyncScript)
                 {
                     string s = p != null && p.ContainsKey("script") ? p["script"].ToString() : "";
                     if (s.Contains("!!window.PercyDOM")) return true;
+                    if (s.Contains("document.querySelectorAll('iframe')"))
+                        return new object[] { IframeEnumEntry(percyElementId: "pid-1") };
+                    if (s.Contains("querySelector") && s.Contains("data-percy-element-id"))
+                        return FakeDriverFactory.IframeElement;
                     if (s.Contains("document.URL")) return "http://localhost:5338/page";
-                    string attr = FakeDriverFactory.AttributeName(p);
-                    if (attr == "src") return "https://cross.example.com/frame.html";
-                    if (attr == "data-percy-element-id") return "pid-1";
                     if (s.Contains("PercyDOM.serialize"))
                     {
                         serializeCalls++;
                         // First call = top-level serialize (ok); second = inside the
-                        // frame → throw to exercise ProcessFrame's catch + outer skip.
+                        // frame → throw to exercise ProcessFrameTree's per-frame catch
+                        // (non-fatal → logged, frame skipped, snapshot still posts).
                         if (serializeCalls >= 2) throw new WebDriverException("frame serialize boom");
                         return new Dictionary<string, object> { { "html", "x" } };
                     }
@@ -906,7 +942,10 @@ namespace PercyIO.Selenium.Tests
             // Should not throw (non-Fatal error is swallowed) and snapshot still posts.
             var ex = Record.Exception(() => Percy.Snapshot(driver, "Frame Serialize Throws"));
             Assert.Null(ex);
+            // We switched INTO the frame (where serialize threw) and back OUT via the
+            // finally's ParentFrame restore.
             Assert.Contains(DriverCommand.SwitchToFrame, driver.Commands);
+            Assert.Contains(DriverCommand.SwitchToParentFrame, driver.Commands);
         }
 
         // ===== TryResizeWithCdp: chrome but no ExecuteCdpCommand method =======
@@ -1253,58 +1292,82 @@ namespace PercyIO.Selenium.Tests
             Assert.True(driver.Scripts.Count(s => s.Contains("PercyDOM.serialize")) >= 2);
         }
 
-        // ===== getSerializedDom: Fatal frame error rethrows (inner + outer) ====
+        // ===== Nested frame: lost parent context aborts further CORS capture ===
 
         [Fact]
-        public void Snapshot_FatalFrameError_RethrowsThroughBothCatches()
+        public void Snapshot_NestedFrameLosesParentContext_AbortsAndShipsPartial()
         {
             Percy.Enabled = () => true;
             Percy.setSessionType("web");
             Percy.setHttpClient(new HttpClient(SnapshotMock()));
 
-            // The iframe `src` attribute is read twice: once at the top of the
-            // getSerializedDom loop (to compute origin) and again inside
-            // ProcessFrame. The 1st read must SUCCEED with a cross-origin URL so
-            // control reaches the per-frame try → ProcessFrame; the 2nd read (in
-            // ProcessFrame, before its own try) throws a "Fatal"-message exception.
-            // That propagates out of ProcessFrame into getSerializedDom's per-frame
-            // catch whose `e.Message.Contains("Fatal")` is true → `throw;` (inner
-            // rethrow). It re-propagates into the outer iframe catch, also Fatal →
-            // `throw;` (outer rethrow). Snapshot's outermost catch then logs and
-            // returns null. One test exercises BOTH rethrow arms.
-            int srcReads = 0;
+            // Two-level cross-origin nesting:
+            //   page (localhost) -> frame A (a.example.com) -> frame B (b.example.com)
+            // A is captured fine. Inside A we recurse into B (depth 2). After B's
+            // serialize, B's SwitchTo().ParentFrame() throws. Because depth (2) > 1,
+            // ProcessFrameTree raises PercyContextLostException carrying the partial
+            // capture; CaptureCorsIframes catches it, logs the abort, merges the
+            // partial frames, and stops. Snapshot still posts (no exception).
+            int parentFrameCalls = 0;
+            int enumCalls = 0;
             var driver = new FakeWebDriver(FakeDriverFactory.FirefoxCaps());
             driver.Handler = (cmd, p) =>
             {
                 if (cmd == DriverCommand.GetCurrentUrl) return "http://localhost:5338/page";
-                if (cmd == DriverCommand.FindElements) return new object[] { FakeDriverFactory.IframeElement };
                 if (cmd == DriverCommand.GetAllCookies) return new object[0];
                 if (cmd == DriverCommand.SwitchToFrame) return null;
+                if (cmd == DriverCommand.SwitchToParentFrame)
+                {
+                    parentFrameCalls++;
+                    // 1st ParentFrame = exiting frame B (depth 2) -> throw to lose
+                    // context. Subsequent calls (best-effort cleanup) succeed.
+                    if (parentFrameCalls == 1)
+                        throw new WebDriverException("frame context detached");
+                    return null;
+                }
                 if (cmd == DriverCommand.ExecuteScript || cmd == DriverCommand.ExecuteAsyncScript)
                 {
                     string s = p != null && p.ContainsKey("script") ? p["script"].ToString() : "";
                     if (s.Contains("!!window.PercyDOM")) return true;
-                    if (s.Contains("document.URL")) return "http://localhost:5338/page";
-                    if (s.Contains("PercyDOM.serialize")) return new Dictionary<string, object> { { "html", "x" } };
-                    if (FakeDriverFactory.AttributeName(p) == "src")
+                    if (s.Contains("document.querySelectorAll('iframe')"))
                     {
-                        srcReads++;
-                        // 1st read (loop, origin calc) succeeds with cross-origin URL.
-                        if (srcReads == 1) return "https://cross.example.com/frame.html";
-                        // 2nd read (inside ProcessFrame) → Fatal exception.
-                        throw new WebDriverException("Fatal: cannot read iframe src");
+                        enumCalls++;
+                        // 1st enum = top-level (page) -> frame A.
+                        if (enumCalls == 1)
+                            return new object[] {
+                                IframeEnumEntry("https://a.example.com/frame.html", "id-a") };
+                        // 2nd enum = inside frame A -> frame B (cross-origin to A).
+                        if (enumCalls == 2)
+                            return new object[] {
+                                IframeEnumEntry("https://b.example.com/inner.html", "id-b") };
+                        // Deeper enumerations: none.
+                        return new object[0];
                     }
+                    if (s.Contains("querySelector") && s.Contains("data-percy-element-id"))
+                        return FakeDriverFactory.IframeElement;
+                    // document.URL re-check returns the just-entered frame's origin so
+                    // the nested enumeration sees B as cross-origin to A.
+                    if (s.Contains("document.URL"))
+                        return enumCalls >= 2 ? "https://a.example.com/frame.html"
+                                              : "http://localhost:5338/page";
+                    if (s.Contains("PercyDOM.serialize")) return new Dictionary<string, object> { { "html", "x" } };
                     return null;
                 }
                 return null;
             };
 
             Newtonsoft.Json.Linq.JObject? result = null;
-            var output = CapturedConsole(() => result = Percy.Snapshot(driver, "Fatal Frame"));
-            // Both Fatal rethrows fired; Snapshot's catch swallowed → null result.
-            Assert.Null(result);
-            Assert.Contains("Could not take DOM snapshot \"Fatal Frame\"", output);
-            Assert.True(srcReads >= 2, $"expected >= 2 src reads, got {srcReads}");
+            var ex = Record.Exception(() => result = Percy.Snapshot(driver, "Nested Frame"));
+            // No exception escapes Snapshot; the lost-context abort is handled.
+            Assert.Null(ex);
+            // We switched into frame A, then into frame B, and (when B's ParentFrame
+            // restore threw) the fallback DefaultContent() — itself a switchToFrame
+            // command with a null frame id — also fired: 3 switch-into-frame commands.
+            Assert.True(driver.Commands.Count(c => c == DriverCommand.SwitchToFrame) >= 2,
+                $"expected >= 2 switchToFrame, got {driver.Commands.Count(c => c == DriverCommand.SwitchToFrame)}");
+            // The depth-2 ParentFrame restore was attempted (and threw, driving the
+            // lost-context path).
+            Assert.Contains(DriverCommand.SwitchToParentFrame, driver.Commands);
         }
     }
 }

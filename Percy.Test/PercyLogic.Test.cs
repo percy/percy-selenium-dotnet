@@ -32,7 +32,7 @@ namespace PercyIO.Selenium.Tests
     // NOTE: kept in a class WITHOUT IClassFixture<TestsFixture> so the live-driver
     // filter (FullyQualifiedName!~UnitTests) does not exclude it and, conversely,
     // these run without a browser.
-    [Collection("PercyLogicSerial")]
+    [Collection("HttpClientStateSerial")]
     public class PercyLogicTest : IDisposable
     {
         private readonly Func<bool> _oldEnabled;
