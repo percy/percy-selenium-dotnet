@@ -561,15 +561,17 @@ namespace PercyIO.Selenium
             if (items == null) return result;
             foreach (var item in items)
             {
+                // Selenium decodes each JS object-literal entry into a
+                // Dictionary<string, object>. At runtime the nullable reference
+                // annotation on the value type is erased, so a
+                // Dictionary<string, object> always satisfies
+                // `is IDictionary<string, object?>` — this single arm therefore
+                // handles every dictionary shape Selenium can return. (A prior
+                // `else if (item is Dictionary<string, object>)` fallback was
+                // dead code for exactly this reason and was removed.)
                 if (item is IDictionary<string, object?> dict)
                 {
                     result.Add(IframeInfo.FromDictionary(dict));
-                }
-                else if (item is Dictionary<string, object> d2)
-                {
-                    var coerced = new Dictionary<string, object?>();
-                    foreach (var kv in d2) coerced[kv.Key] = kv.Value;
-                    result.Add(IframeInfo.FromDictionary(coerced));
                 }
             }
             return result;

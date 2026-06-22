@@ -87,6 +87,11 @@ namespace PercyIO.Selenium.Tests
     {
         public readonly List<string> CdpCommands = new List<string>();
         public bool CdpThrows = false;
+        // Optional pluggable CDP response so closed-shadow-root exposure tests can
+        // return real DOM.getDocument / DOM.resolveNode / Runtime.callFunctionOn
+        // payloads. When null, ExecuteCdpCommand returns an empty dictionary (the
+        // prior default, which keeps existing resize tests unaffected).
+        public Func<string, Dictionary<string, object>, object>? CdpResult = null;
 
         public FakeChromeWebDriver(ICapabilities capabilities) : base(capabilities) { }
 
@@ -94,7 +99,9 @@ namespace PercyIO.Selenium.Tests
         {
             CdpCommands.Add(commandName);
             if (CdpThrows) throw new WebDriverException("cdp boom");
-            return new Dictionary<string, object>();
+            return CdpResult != null
+                ? CdpResult(commandName, commandParameters)
+                : new Dictionary<string, object>();
         }
     }
 
