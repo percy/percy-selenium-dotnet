@@ -5,10 +5,12 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Collections.Generic;
 using System.Text.Json;
 using Newtonsoft.Json.Linq;
 using RichardSzalay.MockHttp;
+using OpenQA.Selenium.Chrome;
 
 namespace PercyIO.Selenium.Tests
 {
@@ -722,6 +724,160 @@ namespace PercyIO.Selenium.Tests
             failing.Fallback.Respond(HttpStatusCode.InternalServerError);
             Percy.setHttpClient(new HttpClient(failing));
             Assert.True(Percy.Enabled());
+        }
+
+        // ===== Log: DEBUG-true branches via DebugEnabled mirror ================
+
+        [Fact]
+        public void Log_DebugEnabled_PrintsCliFailureAndDebugLevelToConsole()
+        {
+            // Flip the env mirror so the DEBUG-gated lines in Log run:
+            //   * the catch arm `if (DebugEnabled) Console.WriteLine("Sending log
+            //     to CLI failed: ...")` (CLI POST must fail to reach the catch)
+            //   * the finally arm that prints even a "debug"-level message
+            // Production reads this exact same value from PERCY_LOGLEVEL=debug.
+            bool oldDebug = Percy.DebugEnabled;
+            Percy.DebugEnabled = true;
+
+            // Make the /percy/log POST fail so Log's try-block throws and the
+            // catch's DebugEnabled-gated console write executes.
+            var mockHttp = new MockHttpMessageHandler();
+            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log")
+                .Respond(HttpStatusCode.InternalServerError);
+            Percy.setHttpClient(new HttpClient(mockHttp));
+
+            var original = Console.Out;
+            var sw = new StringWriter();
+            Console.SetOut(sw);
+            try
+            {
+                InvokeLog("debug-when-enabled", "debug");
+            }
+            finally
+            {
+                Console.SetOut(original);
+                Percy.DebugEnabled = oldDebug;
+            }
+
+            var output = System.Text.RegularExpressions.Regex.Replace(
+                sw.ToString(), @"\e\[(\d+;)*(\d+)?[ABCDHJKfmsu]", "");
+            // catch arm fired (CLI failure surfaced because DebugEnabled)
+            Assert.Contains("Sending log to CLI failed", output);
+            // finally arm fired: a debug-level message printed because DebugEnabled
+            Assert.Contains("debug-when-enabled", output);
+            // label switches to "percy:dotnet" when DebugEnabled
+            Assert.Contains("[percy:dotnet]", output);
+        }
+
+        // ===== ResolveResponsiveTargetHeight: MinHeight-enabled branches =======
+
+        [Fact]
+        public void ResolveResponsiveTargetHeight_MinHeightEnabled_ReturnsConfiguredMinHeight()
+        {
+            // Flip the env mirror so the PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT-enabled
+            // path runs and a configured minHeight (from options) is returned.
+            bool old = Percy.ResponsiveCaptureMinHeight;
+            Percy.ResponsiveCaptureMinHeight = true;
+            try
+            {
+                var options = new Dictionary<string, object> { { "minHeight", 1500 } };
+                var result = (int)InvokePrivate(
+                    "ResolveResponsiveTargetHeight", new object?[] { null, options, 768 })!;
+                Assert.Equal(1500, result); // uses minHeight, not currentHeight
+            }
+            finally
+            {
+                Percy.ResponsiveCaptureMinHeight = old;
+            }
+        }
+
+        [Fact]
+        public void ResolveResponsiveTargetHeight_MinHeightEnabled_FallsBackToCurrentWhenUnset()
+        {
+            // MinHeight enabled but neither options nor cliConfig provide a value →
+            // the `minHeight == null` branch returns currentHeight.
+            bool old = Percy.ResponsiveCaptureMinHeight;
+            Percy.ResponsiveCaptureMinHeight = true;
+            try
+            {
+                var options = new Dictionary<string, object>();
+                var result = (int)InvokePrivate(
+                    "ResolveResponsiveTargetHeight", new object?[] { null, options, 900 })!;
+                Assert.Equal(900, result); // no configured minHeight → currentHeight
+            }
+            finally
+            {
+                Percy.ResponsiveCaptureMinHeight = old;
+            }
+        }
+
+        // ===== ResolveConfiguredMinHeight: FormatException catch via seam ======
+
+        [Fact]
+        public void ResolveConfiguredMinHeight_ParserThrowsFormatException_HitsCatchReturnsNull()
+        {
+            // int.TryParse never throws FormatException, so the catch arm is
+            // otherwise unreachable. Inject a parser that throws to drive it.
+            var oldParser = Percy.MinHeightParser;
+            Percy.MinHeightParser = _ => throw new FormatException("boom");
+            try
+            {
+                var options = new Dictionary<string, object> { { "minHeight", "1280" } };
+                var result = (int?)InvokePrivate("ResolveConfiguredMinHeight", options);
+                Assert.Null(result); // catch logs and returns null
+            }
+            finally
+            {
+                Percy.MinHeightParser = oldParser;
+            }
+        }
+
+        [Fact]
+        public void ResolveConfiguredMinHeight_DefaultParser_ParsesAndReturnsValue()
+        {
+            // The default seam delegate is just int.TryParse — confirm it still
+            // parses correctly (behavior-preserving) after the reroute.
+            var options = new Dictionary<string, object> { { "minHeight", "640" } };
+            var result = (int?)InvokePrivate("ResolveConfiguredMinHeight", options);
+            Assert.Equal(640, result);
+        }
+
+        // ===== IsChromeBrowser: `driver is ChromeDriver` true branch ===========
+
+        [Fact]
+        public void IsChromeBrowser_TrueForChromeDriverInstance()
+        {
+            // The `driver is ChromeDriver` true branch (return true) needs a real
+            // ChromeDriver runtime type. Construct one WITHOUT launching Chrome via
+            // GetUninitializedObject so its ctor (which would start ChromeDriver
+            // service) is bypassed; the runtime type is still ChromeDriver, so the
+            // `is` pattern matches and the method short-circuits to true before any
+            // executor/capability access.
+            var chrome = (OpenQA.Selenium.WebDriver)
+                RuntimeHelpers.GetUninitializedObject(typeof(ChromeDriver));
+            var result = (bool)InvokePrivate("IsChromeBrowser", new object?[] { chrome })!;
+            Assert.True(result);
+        }
+
+        // ===== ResetInternalCaches restores env mirrors ========================
+
+        [Fact]
+        public void ResetInternalCaches_RestoresFlippedMirrorsToEnvDefaults()
+        {
+            Percy.DebugEnabled = !Percy.DEBUG;
+            Percy.ResponsiveCaptureMinHeight = !Percy.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
+            Percy.ResponsiveCaptureReloadPage = !Percy.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE;
+            Percy.MinHeightParser = _ => 42;
+
+            Percy.ResetInternalCaches();
+
+            Assert.Equal(Percy.DEBUG, Percy.DebugEnabled);
+            Assert.Equal(Percy.PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT, Percy.ResponsiveCaptureMinHeight);
+            Assert.Equal(Percy.PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE, Percy.ResponsiveCaptureReloadPage);
+            Assert.Equal(Percy.RESPONSIVE_CAPTURE_SLEEP_TIME, Percy.ResponsiveCaptureSleepTime);
+            // default parser parses again
+            var options = new Dictionary<string, object> { { "minHeight", "55" } };
+            Assert.Equal(55, (int?)InvokePrivate("ResolveConfiguredMinHeight", options));
         }
     }
 }

@@ -1119,5 +1119,192 @@ namespace PercyIO.Selenium.Tests
             var session = psd.GetSessionDetails();
             Assert.Same(seeded, session);
         }
+
+        // ===== Responsive reload-page branch (PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE) =====
+
+        [Fact]
+        public void ResponsiveCapture_ReloadPageEnabled_RefreshesPerWidth()
+        {
+            Percy.Enabled = () => true;
+            Percy.setSessionType("web");
+            Percy.setCliConfig(System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                "{\"snapshot\":{\"responsiveSnapshotCapture\":true}}"));
+            Percy.setHttpClient(new HttpClient(ResponsiveMock("{\"widths\":[375,1280]}")));
+
+            // Flip the env mirror so the reload-page branch in CaptureResponsiveDom
+            // runs: Navigate().Refresh(), re-inject PercyDOM when missing, then
+            // PercyDOM.waitForResize(). Production reads the same value from
+            // PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE=true.
+            bool oldReload = Percy.ResponsiveCaptureReloadPage;
+            Percy.ResponsiveCaptureReloadPage = true;
+
+            int refreshCount = 0;
+            var driver = new FakeWebDriver(FakeDriverFactory.FirefoxCaps());
+            driver.Handler = (cmd, p) =>
+            {
+                if (cmd == DriverCommand.GetWindowRect || cmd == DriverCommand.SetWindowRect)
+                    return new Dictionary<string, object> { { "width", 1280L }, { "height", 1024L }, { "x", 0L }, { "y", 0L } };
+                if (cmd == DriverCommand.GetAllCookies) return new object[0];
+                if (cmd == DriverCommand.FindElements) return new object[0];
+                if (cmd == DriverCommand.GetCurrentUrl) return "http://localhost:5338/page";
+                if (cmd == DriverCommand.Refresh) { refreshCount++; return null; }
+                if (cmd == DriverCommand.ExecuteScript || cmd == DriverCommand.ExecuteAsyncScript)
+                {
+                    string s = p != null && p.ContainsKey("script") ? p["script"].ToString() : "";
+                    // After refresh the SDK probes `return !!window.PercyDOM`; returning
+                    // false drives the re-injection branch inside the reload block.
+                    if (s.Contains("!!window.PercyDOM")) return false;
+                    if (s.Contains("window.resizeCount")) return 0L;
+                    if (s.Contains("document.URL")) return "http://localhost:5338/page";
+                    if (s.Contains("PercyDOM.serialize")) return new Dictionary<string, object> { { "html", "<r/>" } };
+                    if (s.Contains("PercyDOM.waitForResize")) return null;
+                    return null;
+                }
+                return null;
+            };
+
+            try
+            {
+                Percy.Snapshot(driver, "Responsive Reload Enabled");
+            }
+            finally
+            {
+                Percy.ResponsiveCaptureReloadPage = oldReload;
+            }
+
+            // Page was reloaded for each captured width.
+            Assert.True(refreshCount >= 2, $"expected >= 2 refreshes, got {refreshCount}");
+        }
+
+        [Fact]
+        public void ResponsiveCapture_ReloadPageEnabled_RefreshThrows_IsCaughtAndContinues()
+        {
+            Percy.Enabled = () => true;
+            Percy.setSessionType("web");
+            Percy.setCliConfig(System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                "{\"snapshot\":{\"responsiveSnapshotCapture\":true}}"));
+            Percy.setHttpClient(new HttpClient(ResponsiveMock("{\"widths\":[375,1280]}")));
+
+            bool oldReload = Percy.ResponsiveCaptureReloadPage;
+            Percy.ResponsiveCaptureReloadPage = true;
+
+            var driver = new FakeWebDriver(FakeDriverFactory.FirefoxCaps());
+            driver.Handler = (cmd, p) =>
+            {
+                if (cmd == DriverCommand.GetWindowRect || cmd == DriverCommand.SetWindowRect)
+                    return new Dictionary<string, object> { { "width", 1280L }, { "height", 1024L }, { "x", 0L }, { "y", 0L } };
+                if (cmd == DriverCommand.GetAllCookies) return new object[0];
+                if (cmd == DriverCommand.FindElements) return new object[0];
+                if (cmd == DriverCommand.GetCurrentUrl) return "http://localhost:5338/page";
+                // Refresh throws → the reload block's try/catch logs and continues.
+                if (cmd == DriverCommand.Refresh) throw new WebDriverException("reload boom");
+                if (cmd == DriverCommand.ExecuteScript || cmd == DriverCommand.ExecuteAsyncScript)
+                {
+                    string s = p != null && p.ContainsKey("script") ? p["script"].ToString() : "";
+                    if (s.Contains("!!window.PercyDOM")) return true;
+                    if (s.Contains("window.resizeCount")) return 0L;
+                    if (s.Contains("document.URL")) return "http://localhost:5338/page";
+                    if (s.Contains("PercyDOM.serialize")) return new Dictionary<string, object> { { "html", "<r/>" } };
+                    if (s.Contains("PercyDOM.waitForResize")) return null;
+                    return null;
+                }
+                return null;
+            };
+
+            try
+            {
+                var ex = Record.Exception(() => Percy.Snapshot(driver, "Responsive Reload Throws"));
+                Assert.Null(ex); // refresh failure is logged, not fatal
+            }
+            finally
+            {
+                Percy.ResponsiveCaptureReloadPage = oldReload;
+            }
+        }
+
+        // ===== Responsive sleep-time branch (RESPONSIVE_CAPTURE_SLEEP_TIME) ====
+
+        [Fact]
+        public void ResponsiveCapture_SleepTimeSet_SleepsPerWidth()
+        {
+            Percy.Enabled = () => true;
+            Percy.setSessionType("web");
+            Percy.setCliConfig(System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+                "{\"snapshot\":{\"responsiveSnapshotCapture\":true}}"));
+            Percy.setHttpClient(new HttpClient(ResponsiveMock("{\"widths\":[375,1280]}")));
+
+            // Flip the env mirror to a valid integer so Int32.TryParse succeeds and
+            // the per-width Thread.Sleep(sleepTime * 1000) line runs. "0" keeps the
+            // sleep instant (Thread.Sleep(0)) while still executing the line.
+            // Production reads the same value from RESPONSIVE_CAPTURE_SLEEP_TIME.
+            string oldSleep = Percy.ResponsiveCaptureSleepTime;
+            Percy.ResponsiveCaptureSleepTime = "0";
+
+            var driver = ResponsiveDriver();
+            try
+            {
+                Percy.Snapshot(driver, "Responsive Sleep");
+            }
+            finally
+            {
+                Percy.ResponsiveCaptureSleepTime = oldSleep;
+            }
+
+            Assert.True(driver.Scripts.Count(s => s.Contains("PercyDOM.serialize")) >= 2);
+        }
+
+        // ===== getSerializedDom: Fatal frame error rethrows (inner + outer) ====
+
+        [Fact]
+        public void Snapshot_FatalFrameError_RethrowsThroughBothCatches()
+        {
+            Percy.Enabled = () => true;
+            Percy.setSessionType("web");
+            Percy.setHttpClient(new HttpClient(SnapshotMock()));
+
+            // The iframe `src` attribute is read twice: once at the top of the
+            // getSerializedDom loop (to compute origin) and again inside
+            // ProcessFrame. The 1st read must SUCCEED with a cross-origin URL so
+            // control reaches the per-frame try → ProcessFrame; the 2nd read (in
+            // ProcessFrame, before its own try) throws a "Fatal"-message exception.
+            // That propagates out of ProcessFrame into getSerializedDom's per-frame
+            // catch whose `e.Message.Contains("Fatal")` is true → `throw;` (inner
+            // rethrow). It re-propagates into the outer iframe catch, also Fatal →
+            // `throw;` (outer rethrow). Snapshot's outermost catch then logs and
+            // returns null. One test exercises BOTH rethrow arms.
+            int srcReads = 0;
+            var driver = new FakeWebDriver(FakeDriverFactory.FirefoxCaps());
+            driver.Handler = (cmd, p) =>
+            {
+                if (cmd == DriverCommand.GetCurrentUrl) return "http://localhost:5338/page";
+                if (cmd == DriverCommand.FindElements) return new object[] { FakeDriverFactory.IframeElement };
+                if (cmd == DriverCommand.GetAllCookies) return new object[0];
+                if (cmd == DriverCommand.SwitchToFrame) return null;
+                if (cmd == DriverCommand.ExecuteScript || cmd == DriverCommand.ExecuteAsyncScript)
+                {
+                    string s = p != null && p.ContainsKey("script") ? p["script"].ToString() : "";
+                    if (s.Contains("!!window.PercyDOM")) return true;
+                    if (s.Contains("document.URL")) return "http://localhost:5338/page";
+                    if (s.Contains("PercyDOM.serialize")) return new Dictionary<string, object> { { "html", "x" } };
+                    if (FakeDriverFactory.AttributeName(p) == "src")
+                    {
+                        srcReads++;
+                        // 1st read (loop, origin calc) succeeds with cross-origin URL.
+                        if (srcReads == 1) return "https://cross.example.com/frame.html";
+                        // 2nd read (inside ProcessFrame) → Fatal exception.
+                        throw new WebDriverException("Fatal: cannot read iframe src");
+                    }
+                    return null;
+                }
+                return null;
+            };
+
+            Newtonsoft.Json.Linq.JObject? result = null;
+            var output = CapturedConsole(() => result = Percy.Snapshot(driver, "Fatal Frame"));
+            // Both Fatal rethrows fired; Snapshot's catch swallowed → null result.
+            Assert.Null(result);
+            Assert.Contains("Could not take DOM snapshot \"Fatal Frame\"", output);
+            Assert.True(srcReads >= 2, $"expected >= 2 src reads, got {srcReads}");
+        }
     }
 }
