@@ -47,9 +47,36 @@ namespace PercyIO.Selenium
         public static readonly string considerElementKey = "consider_region_selenium_elements";
         public static readonly string considerElementAltKey = "considerRegionSeleniumElements";
 
+        // Test-flippable mirrors of the env-derived flags above. These are
+        // initialized to the *exact* env-derived values of the corresponding
+        // public `static readonly` fields, so production runtime behavior is
+        // identical. The SDK's internal read-sites use these mirrors instead of
+        // the readonly originals; tests (Percy.Test, via InternalsVisibleTo) flip
+        // them to exercise both the enabled and disabled branches without
+        // mutating process environment variables.
+        internal static bool DebugEnabled = DEBUG;
+        internal static bool ResponsiveCaptureMinHeight = PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
+        internal static bool ResponsiveCaptureReloadPage = PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE;
+        internal static string ResponsiveCaptureSleepTime = RESPONSIVE_CAPTURE_SLEEP_TIME;
+
+        // Seam for the minHeight string-parse step. Defaults to the real
+        // int.TryParse-based logic (behavior-preserving). Tests can replace it to
+        // drive the FormatException catch arm in ResolveConfiguredMinHeight, which
+        // int.TryParse itself never triggers.
+        internal static Func<string, int?> MinHeightParser = DefaultMinHeightParser;
+
+        private static int? DefaultMinHeightParser(string value)
+        {
+            if (int.TryParse(value, out int parsedValue))
+            {
+                return parsedValue;
+            }
+            return null;
+        }
+
         private static void Log<T>(T message, string lvl = "info")
         {
-            string label = DEBUG ? "percy:dotnet" : "percy";
+            string label = DebugEnabled ? "percy:dotnet" : "percy";
             string labeledMessage = $"[\u001b[35m{label}\u001b[39m] {message}";
             // Send log message to Percy CLI
             try
@@ -62,13 +89,13 @@ namespace PercyIO.Selenium
             }
             catch (Exception e)
             {
-                if (DEBUG)
+                if (DebugEnabled)
                     Console.WriteLine($"Sending log to CLI failed: {e.Message}");
             }
             finally
             {
                 // Only log to console if lvl is not 'debug' or DEBUG is true
-                if (lvl != "debug" || DEBUG)
+                if (lvl != "debug" || DebugEnabled)
                 {
                     Console.WriteLine(labeledMessage);
                 }
@@ -534,15 +561,17 @@ namespace PercyIO.Selenium
             if (items == null) return result;
             foreach (var item in items)
             {
+                // Selenium decodes each JS object-literal entry into a
+                // Dictionary<string, object>. At runtime the nullable reference
+                // annotation on the value type is erased, so a
+                // Dictionary<string, object> always satisfies
+                // `is IDictionary<string, object?>` — this single arm therefore
+                // handles every dictionary shape Selenium can return. (A prior
+                // `else if (item is Dictionary<string, object>)` fallback was
+                // dead code for exactly this reason and was removed.)
                 if (item is IDictionary<string, object?> dict)
                 {
                     result.Add(IframeInfo.FromDictionary(dict));
-                }
-                else if (item is Dictionary<string, object> d2)
-                {
-                    var coerced = new Dictionary<string, object?>();
-                    foreach (var kv in d2) coerced[kv.Key] = kv.Value;
-                    result.Add(IframeInfo.FromDictionary(coerced));
                 }
             }
             return result;
@@ -1310,7 +1339,7 @@ namespace PercyIO.Selenium
         }
         private static int ResolveResponsiveTargetHeight(WebDriver driver, Dictionary<string, object> options, int currentHeight)
         {
-            if (!PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT)
+            if (!ResponsiveCaptureMinHeight)
             {
                 Log($"PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT is disabled, using current window height: {currentHeight}", "debug");
                 return currentHeight;
@@ -1366,9 +1395,10 @@ namespace PercyIO.Selenium
                 {
                     return intValue;
                 }
-                if (int.TryParse(minHeightObj.ToString(), out int parsedValue))
+                int? parsed = MinHeightParser(minHeightObj.ToString());
+                if (parsed.HasValue)
                 {
-                    return parsedValue;
+                    return parsed.Value;
                 }
             }
             catch (FormatException e)
@@ -1413,7 +1443,7 @@ namespace PercyIO.Selenium
                     lastWindowWidth = width;
                 }
 
-                if (PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE)
+                if (ResponsiveCaptureReloadPage)
                 {
                     try
                     {
@@ -1433,7 +1463,7 @@ namespace PercyIO.Selenium
                         Log($"Page reload failed during responsive capture for width {width}: {error.Message}", "debug");
                     }
                 }
-                if (Int32.TryParse(RESPONSIVE_CAPTURE_SLEEP_TIME, out sleepTime))
+                if (Int32.TryParse(ResponsiveCaptureSleepTime, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
                 var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);
@@ -1661,6 +1691,14 @@ namespace PercyIO.Selenium
             sessionType = null;
             eligibleWidths = null;
             cliConfig = null;
+            // Restore the test-flippable env mirrors and parse seam to their
+            // env-derived defaults so per-test overrides cannot leak. In
+            // production this is a no-op reassignment to the same values.
+            DebugEnabled = DEBUG;
+            ResponsiveCaptureMinHeight = PERCY_RESPONSIVE_CAPTURE_MIN_HEIGHT;
+            ResponsiveCaptureReloadPage = PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE;
+            ResponsiveCaptureSleepTime = RESPONSIVE_CAPTURE_SLEEP_TIME;
+            MinHeightParser = DefaultMinHeightParser;
         }
     }
 
