@@ -188,6 +188,48 @@ namespace PercyIO.Selenium.Tests
             Assert.Contains("\"a\"", obj);
         }
 
+        // ===== JsonElementToObjectDeep / MergeSnapshotOptions (PER-8053) =======
+
+        [Fact]
+        public void JsonElementToObjectDeep_CoversAllValueKinds()
+        {
+            // Recursive converter behind config-merge; exercise every ValueKind branch.
+            Assert.IsType<Dictionary<string, object>>(
+                InvokePrivate("JsonElementToObjectDeep", ParseJson("{\"a\":1}"))!);
+            // all-integer arrays collapse to List<int> (e.g. widths)
+            Assert.IsType<List<int>>(
+                InvokePrivate("JsonElementToObjectDeep", ParseJson("[375,1280]"))!);
+            // mixed arrays stay List<object>
+            Assert.IsType<List<object>>(
+                InvokePrivate("JsonElementToObjectDeep", ParseJson("[1,\"x\"]"))!);
+            Assert.Equal(true, InvokePrivate("JsonElementToObjectDeep", ParseJson("true")));
+            Assert.Equal(false, InvokePrivate("JsonElementToObjectDeep", ParseJson("false")));
+            Assert.Equal(7, InvokePrivate("JsonElementToObjectDeep", ParseJson("7")));
+            Assert.Equal(1.5, InvokePrivate("JsonElementToObjectDeep", ParseJson("1.5")));
+            Assert.Equal("s", InvokePrivate("JsonElementToObjectDeep", ParseJson("\"s\"")));
+            Assert.Null(InvokePrivate("JsonElementToObjectDeep", ParseJson("null")));
+        }
+
+        [Fact]
+        public void MergeSnapshotOptions_MergesCliConfigWithPerCallOptions()
+        {
+            // Global .percy.yml snapshot config merged with per-call options; per-call wins.
+            SetCliConfigJson("{\"snapshot\":{\"enableJavaScript\":true,\"widths\":[375,1280],\"percyCSS\":\"FROM_CONFIG\"}}");
+            var options = new Dictionary<string, object> { { "percyCSS", "FROM_CALL" } };
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", options)!;
+            Assert.True((bool)merged["enableJavaScript"]);   // inherited from config
+            Assert.IsType<List<int>>(merged["widths"]);      // deep-converted from config
+            Assert.Equal("FROM_CALL", merged["percyCSS"]);   // per-call overrides config
+        }
+
+        [Fact]
+        public void MergeSnapshotOptions_NullOptionsAndNoConfig_ReturnsEmpty()
+        {
+            // Covers the null-options branch and the no-cli-config branch.
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", new object?[] { null })!;
+            Assert.NotNull(merged);
+        }
+
         // ===== ResolveReadinessConfig =========================================
 
         [Fact]
