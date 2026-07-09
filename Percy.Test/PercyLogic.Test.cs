@@ -230,6 +230,33 @@ namespace PercyIO.Selenium.Tests
             Assert.NotNull(merged);
         }
 
+        [Fact]
+        public void MergeSnapshotOptions_DeepMergesNestedObjects()
+        {
+            // Nested objects present in both config and per-call options merge
+            // recursively (exercises the DeepMerge recursion branch).
+            SetCliConfigJson("{\"snapshot\":{\"discovery\":{\"networkIdleTimeout\":100,\"disableCache\":true}}}");
+            var options = new Dictionary<string, object>
+            {
+                { "discovery", new Dictionary<string, object> { { "networkIdleTimeout", 200 } } }
+            };
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", options)!;
+            var discovery = (Dictionary<string, object>)merged["discovery"];
+            Assert.Equal(200, discovery["networkIdleTimeout"]);  // per-call wins at the leaf
+            Assert.Equal(true, discovery["disableCache"]);       // config leaf inherited
+        }
+
+        [Fact]
+        public void MergeSnapshotOptions_NonObjectCliConfig_SwallowsAndReturnsOptions()
+        {
+            // A non-object cliConfig makes TryGetProperty("snapshot") throw; the
+            // catch swallows it and per-call options still flow through.
+            SetCliConfigJson("[1,2,3]");
+            var options = new Dictionary<string, object> { { "percyCSS", "x" } };
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", options)!;
+            Assert.Equal("x", merged["percyCSS"]);
+        }
+
         // ===== ResolveReadinessConfig =========================================
 
         [Fact]
