@@ -63,7 +63,3 @@ jobs:
         run: dotnet build --configuration Release --no-restore
       - name: Run Tests
         run: npm test -- --no-restore
-      - name: Print uncovered lines (temporary)
-        if: always()
-        run: |
-          python3 -c "import glob,xml.etree.ElementTree as ET; print([(c.get('filename'),[l.get('number') for l in c.iter('line') if l.get('hits')=='0']) for x in glob.glob('**/*.cobertura.xml',recursive=True) for c in ET.parse(x).getroot().iter('class') if 'Percy.cs' in (c.get('filename') or '')])"

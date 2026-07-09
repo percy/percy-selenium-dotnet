@@ -1576,24 +1576,6 @@ namespace PercyIO.Selenium
             return result;
         }
 
-        private static object ConvertJsonArray(JsonElement array)
-        {
-            var items = array.EnumerateArray().ToList();
-            if (items.Count > 0 && items.All(item => item.ValueKind == JsonValueKind.Number && item.TryGetInt32(out _)))
-            {
-                return items.Select(item => item.GetInt32()).ToList();
-            }
-
-            return items.Select(item => item.ValueKind switch
-            {
-                JsonValueKind.True => true,
-                JsonValueKind.False => false,
-                JsonValueKind.Number => item.TryGetInt32(out int intVal) ? intVal : (object)item.GetDouble(),
-                JsonValueKind.String => item.GetString(),
-                _ => (object)item
-            }).ToList();
-        }
-
         private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options)
         {
             if (cliConfig == null) return false;
