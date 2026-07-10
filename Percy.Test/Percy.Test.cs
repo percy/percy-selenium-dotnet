@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Text;
@@ -385,6 +386,106 @@ namespace PercyIO.Selenium.Tests
             Assert.Contains("Received snapshot: readiness-disabled", logs);
         }
     }
+
+    // Verifies the .percy.yml config (cliConfig.snapshot) <-> per-snapshot
+    // option merge that Percy.Snapshot performs (MergeSnapshotOptions) before
+    // handing the result to PercyDOM.serialize. Two precedence rules:
+    //
+    //   - config seeds the merge: a config-only key (enableJavaScript) is
+    //     inherited into the merged options, AND
+    //   - per-call overlays config: a key present in BOTH config and the
+    //     per-snapshot call (percyCSS) is won by the per-snapshot value.
+    //
+    // MergeSnapshotOptions is the single source of truth for what reaches
+    // PercyDOM.serialize, and Selenium 4's WebDriver is not mockable (no public
+    // parameterless ctor, the ctor starts a real session, and ExecuteScript /
+    // Manage / Url are non-virtual). So we exercise the merge directly through
+    // its private static surface via reflection — fully deterministic, no
+    // browser and no CLI server required.
+    public class MergePrecedenceTests
+    {
+        private static Dictionary<string, object> InvokeMerge(
+            JsonElement cliConfig, Dictionary<string, object>? perSnapshotOptions)
+        {
+            // Seed the SDK's cliConfig (internal setter, visible to Percy.Test).
+            Percy.ResetInternalCaches();
+            Percy.setCliConfig(cliConfig);
+
+            MethodInfo merge = typeof(Percy).GetMethod(
+                "MergeSnapshotOptions", BindingFlags.NonPublic | BindingFlags.Static)!;
+            object? result = merge.Invoke(null, new object?[] { perSnapshotOptions });
+            return (Dictionary<string, object>)result!;
+        }
+
+        [Fact]
+        public void PerSnapshotOptionWinsOverConfigDuringMerge()
+        {
+            try
+            {
+                // .percy.yml config: enableJavaScript is config-only; percyCSS is
+                // set here AND overridden per-snapshot to exercise the conflict.
+                JsonElement cliConfig = JsonSerializer.Deserialize<JsonElement>(
+                    "{\"snapshot\":{\"enableJavaScript\":true,\"percyCSS\":\"FROM_CONFIG\"}}");
+
+                var perSnapshotOptions = new Dictionary<string, object>
+                {
+                    { "percyCSS", "FROM_CALL" }
+                };
+
+                Dictionary<string, object> merged = InvokeMerge(cliConfig, perSnapshotOptions);
+
+                // Config seeds the merge: the config-only key is inherited.
+                Assert.True(merged.ContainsKey("enableJavaScript"));
+                Assert.Equal(true, merged["enableJavaScript"]);
+
+                // Per-call overlays config: the per-snapshot value wins on conflict.
+                Assert.Equal("FROM_CALL", merged["percyCSS"]);
+            }
+            finally
+            {
+                Percy.ResetInternalCaches();
+            }
+        }
+
+        [Fact]
+        public void NestedConfigObjectIsDeepMergedWithPerSnapshotOptions()
+        {
+            try
+            {
+                // .percy.yml config: nested discovery object with two leaves.
+                JsonElement cliConfig = JsonSerializer.Deserialize<JsonElement>(
+                    "{\"snapshot\":{\"discovery\":{\"networkIdleTimeout\":50,\"disableCache\":false}}}");
+
+                // Per-snapshot call overrides only one leaf of the nested object.
+                var perSnapshotOptions = new Dictionary<string, object>
+                {
+                    {
+                        "discovery", new Dictionary<string, object>
+                        {
+                            { "disableCache", true }
+                        }
+                    }
+                };
+
+                Dictionary<string, object> merged = InvokeMerge(cliConfig, perSnapshotOptions);
+
+                // Nested object is deep-merged, not replaced wholesale.
+                Assert.True(merged.ContainsKey("discovery"));
+                var discovery = Assert.IsType<Dictionary<string, object>>(merged["discovery"]);
+
+                // Config-only leaf is preserved.
+                Assert.Equal(50, discovery["networkIdleTimeout"]);
+
+                // Per-call leaf wins at the leaf level.
+                Assert.Equal(true, discovery["disableCache"]);
+            }
+            finally
+            {
+                Percy.ResetInternalCaches();
+            }
+        }
+    }
+
     public class RegionTests
     {
         [Fact]

@@ -188,6 +188,75 @@ namespace PercyIO.Selenium.Tests
             Assert.Contains("\"a\"", obj);
         }
 
+        // ===== JsonElementToObjectDeep / MergeSnapshotOptions (PER-8053) =======
+
+        [Fact]
+        public void JsonElementToObjectDeep_CoversAllValueKinds()
+        {
+            // Recursive converter behind config-merge; exercise every ValueKind branch.
+            Assert.IsType<Dictionary<string, object>>(
+                InvokePrivate("JsonElementToObjectDeep", ParseJson("{\"a\":1}"))!);
+            // all-integer arrays collapse to List<int> (e.g. widths)
+            Assert.IsType<List<int>>(
+                InvokePrivate("JsonElementToObjectDeep", ParseJson("[375,1280]"))!);
+            // mixed arrays stay List<object>
+            Assert.IsType<List<object>>(
+                InvokePrivate("JsonElementToObjectDeep", ParseJson("[1,\"x\"]"))!);
+            Assert.Equal(true, InvokePrivate("JsonElementToObjectDeep", ParseJson("true")));
+            Assert.Equal(false, InvokePrivate("JsonElementToObjectDeep", ParseJson("false")));
+            Assert.Equal(7, InvokePrivate("JsonElementToObjectDeep", ParseJson("7")));
+            Assert.Equal(1.5, InvokePrivate("JsonElementToObjectDeep", ParseJson("1.5")));
+            Assert.Equal("s", InvokePrivate("JsonElementToObjectDeep", ParseJson("\"s\"")));
+            Assert.Null(InvokePrivate("JsonElementToObjectDeep", ParseJson("null")));
+        }
+
+        [Fact]
+        public void MergeSnapshotOptions_MergesCliConfigWithPerCallOptions()
+        {
+            // Global .percy.yml snapshot config merged with per-call options; per-call wins.
+            SetCliConfigJson("{\"snapshot\":{\"enableJavaScript\":true,\"widths\":[375,1280],\"percyCSS\":\"FROM_CONFIG\"}}");
+            var options = new Dictionary<string, object> { { "percyCSS", "FROM_CALL" } };
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", options)!;
+            Assert.True((bool)merged["enableJavaScript"]);   // inherited from config
+            Assert.IsType<List<int>>(merged["widths"]);      // deep-converted from config
+            Assert.Equal("FROM_CALL", merged["percyCSS"]);   // per-call overrides config
+        }
+
+        [Fact]
+        public void MergeSnapshotOptions_NullOptionsAndNoConfig_ReturnsEmpty()
+        {
+            // Covers the null-options branch and the no-cli-config branch.
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", new object?[] { null })!;
+            Assert.NotNull(merged);
+        }
+
+        [Fact]
+        public void MergeSnapshotOptions_DeepMergesNestedObjects()
+        {
+            // Nested objects present in both config and per-call options merge
+            // recursively (exercises the DeepMerge recursion branch).
+            SetCliConfigJson("{\"snapshot\":{\"discovery\":{\"networkIdleTimeout\":100,\"disableCache\":true}}}");
+            var options = new Dictionary<string, object>
+            {
+                { "discovery", new Dictionary<string, object> { { "networkIdleTimeout", 200 } } }
+            };
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", options)!;
+            var discovery = (Dictionary<string, object>)merged["discovery"];
+            Assert.Equal(200, discovery["networkIdleTimeout"]);  // per-call wins at the leaf
+            Assert.Equal(true, discovery["disableCache"]);       // config leaf inherited
+        }
+
+        [Fact]
+        public void MergeSnapshotOptions_NonObjectCliConfig_SwallowsAndReturnsOptions()
+        {
+            // A non-object cliConfig makes TryGetProperty("snapshot") throw; the
+            // catch swallows it and per-call options still flow through.
+            SetCliConfigJson("[1,2,3]");
+            var options = new Dictionary<string, object> { { "percyCSS", "x" } };
+            var merged = (Dictionary<string, object>)InvokePrivate("MergeSnapshotOptions", options)!;
+            Assert.Equal("x", merged["percyCSS"]);
+        }
+
         // ===== ResolveReadinessConfig =========================================
 
         [Fact]

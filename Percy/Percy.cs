@@ -1476,6 +1476,106 @@ namespace PercyIO.Selenium
             return domSnapshots;
         }
 
+        private static Dictionary<string, object> MergeSnapshotOptions(Dictionary<string, object>? options)
+        {
+            var merged = new Dictionary<string, object>();
+            if (cliConfig != null)
+            {
+                try
+                {
+                    JsonElement config = (JsonElement)cliConfig;
+                    if (config.TryGetProperty("snapshot", out JsonElement snapshotElement) &&
+                        snapshotElement.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (JsonProperty prop in snapshotElement.EnumerateObject())
+                        {
+                            // Recursively convert config values so nested JSON
+                            // objects become Dictionary<string, object> and can be
+                            // deep-merged with per-call options below.
+                            var converted = JsonElementToObjectDeep(prop.Value);
+                            if (converted != null)
+                                merged[prop.Name] = converted;
+                        }
+                    }
+                }
+                catch (Exception) { }
+            }
+            if (options != null)
+            {
+                // Deep-merge: nested objects merge recursively (per-call wins at
+                // leaves), arrays/scalars replace. Matches the JS sdk-utils fix.
+                merged = DeepMerge(merged, options);
+            }
+            return merged;
+        }
+
+        // Recursively converts a JSON element into plain CLR objects:
+        // Object -> Dictionary<string, object> (recursive),
+        // Array  -> List<object> (recursive),
+        // primitives -> bool / int / double / string.
+        private static object? JsonElementToObjectDeep(JsonElement el)
+        {
+            switch (el.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    var dict = new Dictionary<string, object>();
+                    foreach (JsonProperty prop in el.EnumerateObject())
+                    {
+                        var converted = JsonElementToObjectDeep(prop.Value);
+                        if (converted != null)
+                            dict[prop.Name] = converted;
+                    }
+                    return dict;
+                case JsonValueKind.Array:
+                    var items = el.EnumerateArray().ToList();
+                    // All-integer arrays (e.g. config `widths`) must stay List<int> so
+                    // downstream consumers like CaptureResponsiveDom can use them directly.
+                    if (items.Count > 0 && items.All(i => i.ValueKind == JsonValueKind.Number && i.TryGetInt32(out _)))
+                        return items.Select(i => i.GetInt32()).ToList();
+                    var list = new List<object>();
+                    foreach (JsonElement item in items)
+                    {
+                        var converted = JsonElementToObjectDeep(item);
+                        if (converted != null)
+                            list.Add(converted);
+                    }
+                    return list;
+                case JsonValueKind.True:
+                    return true;
+                case JsonValueKind.False:
+                    return false;
+                case JsonValueKind.Number:
+                    return el.TryGetInt32(out int intVal) ? (object)intVal : el.GetDouble();
+                case JsonValueKind.String:
+                    return el.GetString();
+                default:
+                    return null;
+            }
+        }
+
+        // Deep-merges override into a copy of baseDict: when a key exists in both
+        // and both values are Dictionary<string, object>, recurse; otherwise the
+        // override value wins (arrays and scalars replace).
+        private static Dictionary<string, object> DeepMerge(
+            Dictionary<string, object> baseDict, Dictionary<string, object> overrideDict)
+        {
+            var result = new Dictionary<string, object>(baseDict);
+            foreach (var kvp in overrideDict)
+            {
+                if (result.TryGetValue(kvp.Key, out var existing) &&
+                    existing is Dictionary<string, object> existingDict &&
+                    kvp.Value is Dictionary<string, object> overrideNested)
+                {
+                    result[kvp.Key] = DeepMerge(existingDict, overrideNested);
+                }
+                else
+                {
+                    result[kvp.Key] = kvp.Value;
+                }
+            }
+            return result;
+        }
+
         private static bool isResponsiveSnapshotCapture(Dictionary<string, object>? options)
         {
             if (cliConfig == null) return false;
@@ -1531,14 +1631,16 @@ namespace PercyIO.Selenium
                 // Non-Chrome browsers and missing ExecuteCdpCommand are no-ops.
                 ExposeClosedShadowRoots(driver);
 
+                // Merge .percy.yml config options with snapshot options (snapshot options take priority)
+                var mergedOptions = MergeSnapshotOptions(options);
+
                 var cookies = driver.Manage().Cookies.AllCookies;
-                string opts = JsonSerializer.Serialize(options);
                 dynamic domSnapshot = null;
 
-                if (isResponsiveSnapshotCapture(options)) {
-                    domSnapshot = CaptureResponsiveDom(driver, cookies, options);
+                if (isResponsiveSnapshotCapture(mergedOptions)) {
+                    domSnapshot = CaptureResponsiveDom(driver, cookies, mergedOptions);
                 } else {
-                    domSnapshot = getSerializedDom(driver, cookies, options, _dom);
+                    domSnapshot = getSerializedDom(driver, cookies, mergedOptions, _dom);
                 }
 
                 Options snapshotOptions = new Options {
