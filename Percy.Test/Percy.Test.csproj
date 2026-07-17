@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AngleSharp" Version="1.5.0" />
     <PackageReference Include="Microsoft.TestPlatform.ObjectModel" Version="17.11.1"
       Condition="$(TargetFramework.StartsWith('net4')) AND '$(OS)' == 'Unix'" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
