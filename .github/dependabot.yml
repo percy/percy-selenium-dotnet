@@ -1,4 +1,6 @@
 version: 2
+# Wait 7 days before proposing updates to newly published versions, so a
+# compromised/unstable release has time to be caught and yanked.
 updates:
 - package-ecosystem: npm
   directory: /
@@ -8,6 +10,8 @@ updates:
     interval: weekly
   commit-message:
     prefix: ⬆️
+  cooldown:
+    default-days: 7
 - package-ecosystem: nuget
   directory: /
   labels:
@@ -16,6 +20,8 @@ updates:
     interval: weekly
   commit-message:
     prefix: ⬆️
+  cooldown:
+    default-days: 7
 - package-ecosystem: github-actions
   directory: /
   schedule:
@@ -24,3 +30,5 @@ updates:
     prefix: ⬆️👷
   labels:
     - ⬆️⬇️ dependencies
+  cooldown:
+    default-days: 7

@@ -14,7 +14,7 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions-ecosystem/action-regex-match@v2
+      - uses: actions-ecosystem/action-regex-match@9e6c4fb3d5e898f505be7a1fb6e7b0a278f6665b # v2.0.2
         id: regex-match
         if: ${{ github.event_name == 'workflow_dispatch' }}
         with:
@@ -23,16 +23,16 @@ jobs:
       - name: Break on invalid branch name
         run: exit 1
         if: ${{ github.event_name == 'workflow_dispatch' && steps.regex-match.outputs && steps.regex-match.outputs.match == '' }}
-      - uses: actions/checkout@v3
-      - uses: actions/setup-dotnet@v3
+      - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
+      - uses: actions/setup-dotnet@55ec9447dda3d1cf6bd587150f3262f30ee10815 # v3.4.2
         with:
           dotnet-version: 6.0.x
-      - uses: actions/cache@v3
+      - uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}/nuget-6.0.x/${{ hashFiles('**/packages.lock.json') }}
           restore-keys: ${{ runner.os }}/nuget-6.0.x/
-      - uses: actions/cache@v3
+      - uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
         with:
           path: node_modules
           key: ${{ runner.os }}/node-16/${{ hashFiles('**/package-lock.json') }}
@@ -47,9 +47,13 @@ jobs:
           PERCY_POSTINSTALL_BROWSER: true
       - name: Set up @percy/cli from git
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          # Pass the untrusted workflow_dispatch input through an env var instead
+          # of interpolating it directly into the shell (run-shell-injection).
+          PERCY_CLI_BRANCH: ${{ github.event.inputs.branch }}
         run: |
           cd /tmp
-          git clone --branch ${{ github.event.inputs.branch }} --depth 1 https://github.com/percy/cli
+          git clone --branch "$PERCY_CLI_BRANCH" --depth 1 https://github.com/percy/cli
           cd cli
           PERCY_PACKAGES=`find packages -type d -depth 1 | sed -e 's/packages/@percy/g' | tr '\n' ' '`
           git log -1
