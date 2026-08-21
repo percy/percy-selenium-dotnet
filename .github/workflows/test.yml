@@ -27,12 +27,12 @@ jobs:
       - uses: actions/setup-dotnet@55ec9447dda3d1cf6bd587150f3262f30ee10815 # v3.4.2
         with:
           dotnet-version: 6.0.x
-      - uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}/nuget-6.0.x/${{ hashFiles('**/packages.lock.json') }}
           restore-keys: ${{ runner.os }}/nuget-6.0.x/
-      - uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules
           key: ${{ runner.os }}/node-16/${{ hashFiles('**/package-lock.json') }}
