@@ -129,6 +129,22 @@ namespace PercyIO.Selenium.Tests
             Assert.Equal(MinimalPdfBase64, body.GetProperty("pdf").GetProperty("content").GetString());
         }
 
+        // Stubs the CLI: a healthy v1 healthcheck plus one canned
+        // /percy/pdf/snapshot response. Used wherever the assertion is about how
+        // PdfSnapshot interprets a response, which the testing-mode CLI cannot
+        // produce until the route ships.
+        private static MockHttpMessageHandler StubbedCli(string pdfSnapshotResponse)
+        {
+            var mockHttp = new MockHttpMessageHandler();
+            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/healthcheck")
+                .Respond(new Dictionary<string, string> { { "x-percy-core-version", "1.0.0" } },
+                         "application/json", "{\"success\":true}");
+            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/pdf/snapshot")
+                .Respond("application/json", pdfSnapshotResponse);
+            mockHttp.Fallback.Respond("application/json", "{}");
+            return mockHttp;
+        }
+
         // Response parsing is asserted against a stubbed CLI rather than the one
         // testing mode boots: /percy/pdf/snapshot is not in a published
         // @percy/cli yet, so the real server 404s it and there is no aggregate
@@ -153,14 +169,7 @@ namespace PercyIO.Selenium.Tests
         [Fact]
         public void ParsesTheSyncAggregateResponseAsAJObject()
         {
-            var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/healthcheck")
-                .Respond(new Dictionary<string, string> { { "x-percy-core-version", "1.0.0" } },
-                         "application/json", "{\"success\":true}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/pdf/snapshot")
-                .Respond("application/json", SyncAggregateResponse);
-            mockHttp.Fallback.Respond("application/json", "{}");
-            Percy.setHttpClient(new HttpClient(mockHttp));
+            Percy.setHttpClient(new HttpClient(StubbedCli(SyncAggregateResponse)));
             Percy.ResetInternalCaches();
 
             JObject? result = Percy.PdfSnapshot("Policy", Pdf, new { sync = true });
@@ -179,6 +188,30 @@ namespace PercyIO.Selenium.Tests
             // diff-info hangs off each screenshot, not off the page itself.
             Assert.Equal(0d, (double)pages[0]["screenshots"]![0]!["diff-info"]!["diff-ratio"]!, 4);
             Assert.Equal(0.0142d, (double)pages[1]["screenshots"]![0]!["diff-info"]!["diff-ratio"]!, 4);
+        }
+
+        [Fact]
+        public void ReturnsNullWhenTheResponseReportsFailure()
+        {
+            // success:false makes PdfSnapshot throw the CLI's own error message,
+            // which its catch turns into a logged null rather than an exception.
+            Percy.setHttpClient(new HttpClient(StubbedCli(
+                "{\"success\":false,\"error\":\"could not rasterize PDF\"}")));
+            Percy.ResetInternalCaches();
+
+            Assert.Null(Percy.PdfSnapshot("Policy", Pdf));
+        }
+
+        [Fact]
+        public void ReturnsNullWhenTheResponseCarriesNoData()
+        {
+            // A success with no `data` member is not an error, but there is
+            // nothing to hand back, so the result is null rather than an empty
+            // JObject.
+            Percy.setHttpClient(new HttpClient(StubbedCli("{\"success\":true}")));
+            Percy.ResetInternalCaches();
+
+            Assert.Null(Percy.PdfSnapshot("Policy", Pdf));
         }
 
         [Fact]
