@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using Newtonsoft.Json.Linq;
+using RichardSzalay.MockHttp;
 
 namespace PercyIO.Selenium.Tests
 {
@@ -128,18 +129,56 @@ namespace PercyIO.Selenium.Tests
             Assert.Equal(MinimalPdfBase64, body.GetProperty("pdf").GetProperty("content").GetString());
         }
 
-        [Fact]
-        public void ParsesTheAggregateResponseAsAJObject()
-        {
-            // The endpoint returns a JSON OBJECT, never a bare array, so that
-            // JObject.Parse works. A `pages` array hangs off that object.
-            JObject? result = Percy.PdfSnapshot("Policy", Pdf);
+        // Response parsing is asserted against a stubbed CLI rather than the one
+        // testing mode boots: /percy/pdf/snapshot is not in a published
+        // @percy/cli yet, so the real server 404s it and there is no aggregate
+        // to parse. Stubbing also lets this cover the sync shape, which is the
+        // one carrying per-page comparison results.
+        private const string SyncAggregateResponse = @"{
+          ""success"": true,
+          ""data"": {
+            ""pdf-name"": ""Policy"",
+            ""page-count"": 2,
+            ""pages-snapshotted"": 2,
+            ""status"": ""success"",
+            ""pages"": [
+              { ""page"": 1, ""snapshot-name"": ""Policy | Page 1"", ""status"": ""success"",
+                ""screenshots"": [ { ""diff-info"": { ""diff-ratio"": 0 } } ] },
+              { ""page"": 2, ""snapshot-name"": ""Policy | Page 2"", ""status"": ""success"",
+                ""screenshots"": [ { ""diff-info"": { ""diff-ratio"": 0.0142 } } ] }
+            ]
+          }
+        }";
 
+        [Fact]
+        public void ParsesTheSyncAggregateResponseAsAJObject()
+        {
+            var mockHttp = new MockHttpMessageHandler();
+            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/healthcheck")
+                .Respond(new Dictionary<string, string> { { "x-percy-core-version", "1.0.0" } },
+                         "application/json", "{\"success\":true}");
+            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/pdf/snapshot")
+                .Respond("application/json", SyncAggregateResponse);
+            mockHttp.Fallback.Respond("application/json", "{}");
+            Percy.setHttpClient(new HttpClient(mockHttp));
+            Percy.ResetInternalCaches();
+
+            JObject? result = Percy.PdfSnapshot("Policy", Pdf, new { sync = true });
+
+            // A JSON object, never a bare array -- that is what lets JObject.Parse work.
             Assert.NotNull(result);
             Assert.Equal("Policy", (string?)result!["pdf-name"]);
-            Assert.Equal(1, (int?)result["page-count"]);
-            Assert.IsType<JArray>(result["pages"]);
-            Assert.Equal("Policy | Page 1", (string?)result["pages"]![0]!["snapshot-name"]);
+            Assert.Equal(2, (int)result["page-count"]!);
+            Assert.Equal("success", (string?)result["status"]);
+
+            JArray pages = Assert.IsType<JArray>(result["pages"]);
+            Assert.Equal(2, pages.Count);
+            Assert.Equal("Policy | Page 1", (string?)pages[0]["snapshot-name"]);
+            Assert.Equal("Policy | Page 2", (string?)pages[1]["snapshot-name"]);
+
+            // diff-info hangs off each screenshot, not off the page itself.
+            Assert.Equal(0d, (double)pages[0]["screenshots"]![0]!["diff-info"]!["diff-ratio"]!, 4);
+            Assert.Equal(0.0142d, (double)pages[1]["screenshots"]![0]!["diff-info"]!["diff-ratio"]!, 4);
         }
 
         [Fact]
