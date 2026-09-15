@@ -1786,6 +1786,86 @@ namespace PercyIO.Selenium
             return Screenshot(driver, name, options);
         }
 
+        // Takes a PDF document and returns one Percy snapshot per page.
+        //
+        // Reaches the CLI's /percy/pdf/snapshot endpoint, which rasterizes the
+        // document and fans out to `<name> | Page N` snapshots. No WebDriver is
+        // involved: a PDF is bytes, not a rendered page, so this deliberately
+        // does NOT take a driver and does not serialize any DOM.
+        //
+        // The document travels as base64 inside the ordinary JSON body, so this
+        // reuses the same Request() helper as Snapshot() -- no multipart, no
+        // streaming, nothing new in the HTTP layer.
+        //
+        // With options["sync"] = true the CLI blocks until every page has been
+        // compared and the returned JObject carries a "pages" array, one entry
+        // per page, each with its own "diff-info". The response is always a JSON
+        // object (never a bare array) precisely so JObject.Parse works here.
+        //
+        // Returns null when Percy is disabled or the call fails, matching
+        // Snapshot()'s contract -- callers assert on the result, they are not
+        // handed an exception.
+        public static JObject? PdfSnapshot(
+            string name, byte[] pdf,
+            Dictionary<string, object>? options = null)
+        {
+            if (!Enabled()) return null;
+
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("A snapshot name is required", nameof(name));
+            if (pdf == null || pdf.Length == 0)
+                throw new ArgumentException("PDF data is required", nameof(pdf));
+
+            try
+            {
+                Options pdfOptions = new Options {
+                    { "clientInfo", CLIENT_INFO },
+                    { "environmentInfo", ENVIRONMENT_INFO },
+                    { "name", name },
+                    { "pdf", new Dictionary<string, object> {
+                        { "content", Convert.ToBase64String(pdf) }
+                    }}
+                };
+
+                if (options != null)
+                    foreach (KeyValuePair<string, object> o in options)
+                    {
+                        // `pdf` is built above from the byte[] argument; a
+                        // caller-supplied one would silently win over it.
+                        if (o.Key == "pdf") continue;
+                        pdfOptions[o.Key] = o.Value;
+                    }
+
+                dynamic res = Request("/percy/pdf/snapshot", pdfOptions);
+                dynamic data = JsonSerializer.Deserialize<object>(res.content);
+
+                if (data.GetProperty("success").GetBoolean() != true)
+                    throw new Exception(data.GetProperty("error").GetString());
+                if (data.TryGetProperty("data", out JsonElement results)) {
+                    return JObject.Parse(results.GetRawText());
+                }
+                return null;
+            }
+            catch (Exception error)
+            {
+                Log($"Could not take PDF snapshot \"{name}\"");
+                Log(error);
+                return null;
+            }
+        }
+
+        // Convenience overload taking an anonymous object for options, matching
+        // the Snapshot(driver, name, object opts) shape.
+        public static JObject? PdfSnapshot(string name, byte[] pdf, object opts)
+        {
+            Options options = new Options();
+
+            foreach (PropertyDescriptor prop in TypeDescriptor.GetProperties(opts))
+                options.Add(prop.Name, prop.GetValue(opts));
+
+            return PdfSnapshot(name, pdf, options);
+        }
+
         public static void ResetInternalCaches()
         {
             _enabled = null;
