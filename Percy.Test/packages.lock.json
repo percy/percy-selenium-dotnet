@@ -53,9 +53,9 @@
       },
       "RichardSzalay.MockHttp": {
         "type": "Direct",
-        "requested": "[6.0.0, )",
-        "resolved": "6.0.0",
-        "contentHash": "bStGNqIX/MGYtML7K3EzdsE/k5HGVAcg7XgN23TQXGXqxNC9fvYFR94fA0sGM5hAT36R+BBGet6ZDQxXL/IPxg=="
+        "requested": "[7.1.0, )",
+        "resolved": "7.1.0",
+        "contentHash": "xIOzidJTpZa7f4Ig9xQDBhCXlZi2TCFA2mD0LQcA0J1ld6cVF42tU6+iOzfUAac4EfkvtYWsuMCLVckM6fQxLg=="
       },
       "Selenium.WebDriver": {
         "type": "Direct",
