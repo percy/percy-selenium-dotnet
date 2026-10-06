@@ -59,9 +59,9 @@
       },
       "Selenium.WebDriver": {
         "type": "Direct",
-        "requested": "[4.27.0, )",
-        "resolved": "4.27.0",
-        "contentHash": "bMIpqwpBfYLa1lh8gPVa6A1i9LeWNsfc2mR9why0DutEKI7ck3GVxzco1bB/8bv+7IA6rk4sR9WpZLRUnH/AAw=="
+        "requested": "[4.44.0, )",
+        "resolved": "4.44.0",
+        "contentHash": "T6SO7JDdCCbyCU008v2+Zl9e3dUM4VgUXrtSgFjILm9Ceifoh3jvV0rkFhbALOPFMvxJhuje3zCqX43jk6Ueaw=="
       },
       "WebDriverManager": {
         "type": "Direct",
@@ -137,8 +137,8 @@
       },
       "Newtonsoft.Json": {
         "type": "Transitive",
-        "resolved": "13.0.1",
-        "contentHash": "ppPFpBcvxdsfUonNcvITKqLl3bqxWbDCZIzDWHzjpdAHRFfZe0Dw9HmA0+za13IdyrgJwpkDTDA9fHaxOrt20A=="
+        "resolved": "13.0.3",
+        "contentHash": "HrC5BXdl00IP9zeV+0Z848QWPAoCr9P3bDEZguI+gkLcBKAOxix/tLEAAHC+UvDNPv4a2d18lOReHMOagPa+zQ=="
       },
       "SharpZipLib": {
         "type": "Transitive",
@@ -193,7 +193,8 @@
       "PercyIO.Selenium": {
         "type": "Project",
         "dependencies": {
-          "Selenium.WebDriver": "[4.5.1, )"
+          "Newtonsoft.Json": "[13.0.3, )",
+          "Selenium.WebDriver": "[4.44.0, )"
         }
       }
     }

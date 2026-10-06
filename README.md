@@ -46,6 +46,17 @@ Install the PercyIO.Selenium package (for example, with .NET CLI):
 $ dotnet add package PercyIO.Selenium
 ```
 
+### Selenium version compatibility
+
+Selenium 4.44 renamed its .NET assembly from `WebDriver.dll` to the strong-named
+`Selenium.WebDriver.dll`, so a single PercyIO.Selenium build cannot load against both sides of
+that release:
+
+| Selenium.WebDriver | PercyIO.Selenium |
+|--------------------|------------------|
+| 4.44.0 and later   | 3.x              |
+| 4.43.x and earlier | 2.x              |
+
 ## Usage
 
 This is an example test using the `Percy.Snapshot` method.
