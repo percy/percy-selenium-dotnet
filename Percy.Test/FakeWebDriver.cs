@@ -38,8 +38,6 @@ namespace PercyIO.Selenium.Tests
             if (parameters != null && parameters.TryGetValue("script", out var s) && s != null)
                 Scripts.Add(s.ToString());
 
-            var response = new Response { Status = WebDriverResult.Success, SessionId = "sess-123" };
-
             if (command == DriverCommand.NewSession)
             {
                 // Echo the requested firstMatch capabilities back as the session's
@@ -53,13 +51,11 @@ namespace PercyIO.Selenium.Tests
                 {
                     caps = first;
                 }
-                response.Value = caps;
-                return Task.FromResult(response);
+                return Task.FromResult(new Response("sess-123", caps, WebDriverResult.Success));
             }
 
             object value = Handler != null ? Handler(command, parameters) : DefaultResult(command, parameters);
-            response.Value = value;
-            return Task.FromResult(response);
+            return Task.FromResult(new Response("sess-123", value, WebDriverResult.Success));
         }
 
         private object DefaultResult(string command, Dictionary<string, object> parameters)
