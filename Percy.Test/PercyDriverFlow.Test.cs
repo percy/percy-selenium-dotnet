@@ -62,13 +62,13 @@ namespace PercyIO.Selenium.Tests
         private static MockHttpMessageHandler SnapshotMock(string snapshotResponse = "{\"success\":true}")
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/dom.js")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/dom.js")
                 .Respond("application/javascript", "window.PercyDOM = { serialize: function(){ return {}; } };");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/snapshot")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/snapshot")
                 .Respond("application/json", snapshotResponse);
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
                 .Respond("application/json", "{\"success\":true}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log")
                 .Respond("application/json", "{}");
             mockHttp.Fallback.Respond("application/json", "{\"success\":true}");
             return mockHttp;
@@ -344,7 +344,7 @@ namespace PercyIO.Selenium.Tests
             Percy.Enabled = () => true;
             Percy.setSessionType("automate");
             var mockHttp = SnapshotMock();
-            mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+            mockHttp.Expect(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
                 .WithPartialContent("Automate Shot")
                 .Respond("application/json", "{\"success\":true}");
             Percy.setHttpClient(new HttpClient(mockHttp));
@@ -393,9 +393,9 @@ namespace PercyIO.Selenium.Tests
             Percy.Enabled = () => true;
             Percy.setSessionType("automate");
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
                 .Respond("application/json", "{\"success\":false,\"error\":\"nope\"}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log").Respond("application/json", "{}");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log").Respond("application/json", "{}");
             mockHttp.Fallback.Respond("application/json", "{}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -409,13 +409,13 @@ namespace PercyIO.Selenium.Tests
         private static MockHttpMessageHandler ResponsiveMock(string widthsJson)
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/dom.js")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/dom.js")
                 .Respond("application/javascript", "window.PercyDOM = {};");
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/widths-config*")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/widths-config*")
                 .Respond("application/json", widthsJson);
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/snapshot")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/snapshot")
                 .Respond("application/json", "{\"success\":true}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log").Respond("application/json", "{}");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log").Respond("application/json", "{}");
             mockHttp.Fallback.Respond("application/json", "{\"success\":true}");
             return mockHttp;
         }
@@ -480,6 +480,37 @@ namespace PercyIO.Selenium.Tests
                 { "widths", new List<int> { 375, 1280 } }
             };
             Percy.Snapshot(driver, "Responsive From Options", options);
+            Assert.True(driver.Scripts.Count(s => s.Contains("PercyDOM.serialize")) >= 2);
+        }
+
+        [Fact]
+        public void Snapshot_ResponsiveCapture_AcceptsIntArrayWidths()
+        {
+            Percy.Enabled = () => true;
+            Percy.setSessionType("web");
+            Percy.setCliConfig(System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>("{\"snapshot\":{}}"));
+            var mockHttp = new MockHttpMessageHandler();
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/dom.js")
+                .Respond("application/javascript", "window.PercyDOM = {};");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log").Respond("application/json", "{}");
+            mockHttp.Fallback.Respond("application/json", "{\"success\":true}");
+            var widthsRequest = mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/widths-config?widths=375,1280")
+                .Respond("application/json", "{\"widths\":[375,1280]}");
+            var snapshotRequest = mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/snapshot")
+                .Respond("application/json", "{\"success\":true}");
+            Percy.setHttpClient(new HttpClient(mockHttp));
+
+            var driver = ResponsiveDriver();
+            var options = new Dictionary<string, object>
+            {
+                { "responsiveSnapshotCapture", true },
+                { "widths", new[] { 375, 1280 } }
+            };
+            var output = CapturedConsole(() => Percy.Snapshot(driver, "Responsive Int Array", options));
+
+            Assert.DoesNotContain("Could not take DOM snapshot", output);
+            Assert.Equal(1, mockHttp.GetMatchCount(widthsRequest));
+            Assert.Equal(1, mockHttp.GetMatchCount(snapshotRequest));
             Assert.True(driver.Scripts.Count(s => s.Contains("PercyDOM.serialize")) >= 2);
         }
 
@@ -698,11 +729,11 @@ namespace PercyIO.Selenium.Tests
             Percy.Enabled = () => true;
             Percy.setSessionType("automate");
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+            mockHttp.Expect(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
                 .WithPartialContent("ELEM-IGNORE")
                 .WithPartialContent("ELEM-CONSIDER")
                 .Respond("application/json", "{\"success\":true}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log").Respond("application/json", "{}");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log").Respond("application/json", "{}");
             mockHttp.Fallback.Respond("application/json", "{\"success\":true}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -736,11 +767,11 @@ namespace PercyIO.Selenium.Tests
             Percy.Enabled = () => true;
             Percy.setSessionType("automate");
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+            mockHttp.Expect(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
                 .WithPartialContent("ALT-IGNORE")
                 .WithPartialContent("ALT-CONSIDER")
                 .Respond("application/json", "{\"success\":true}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log").Respond("application/json", "{}");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log").Respond("application/json", "{}");
             mockHttp.Fallback.Respond("application/json", "{\"success\":true}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -777,10 +808,10 @@ namespace PercyIO.Selenium.Tests
             // success:false → Enabled() catches the thrown Exception(data.error) and
             // logs "Percy is not running" — exercises the success!=true throw branch.
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/healthcheck")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/healthcheck")
                 .Respond(new Dictionary<string, string> { { "x-percy-core-version", "1.0.0" } },
                          "application/json", "{\"success\":false,\"error\":\"nope\"}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log").Respond("application/json", "{}");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log").Respond("application/json", "{}");
             mockHttp.Fallback.Respond("application/json", "{}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -997,13 +1028,13 @@ namespace PercyIO.Selenium.Tests
             // ResetInternalCaches in the ctor already nulled _dom; verify dom.js is GET.
             var domFetched = false;
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/dom.js")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/dom.js")
                 .Respond(_ => { domFetched = true; return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
                     { Content = new StringContent("window.PercyDOM = {};") }; });
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/widths-config*")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/widths-config*")
                 .Respond("application/json", "{\"widths\":[375,1280]}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/snapshot").Respond("application/json", "{\"success\":true}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log").Respond("application/json", "{}");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/snapshot").Respond("application/json", "{\"success\":true}");
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log").Respond("application/json", "{}");
             mockHttp.Fallback.Respond("application/json", "{\"success\":true}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 

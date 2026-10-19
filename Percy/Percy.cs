@@ -23,8 +23,7 @@ namespace PercyIO.Selenium
     {
         public static readonly bool DEBUG =
             Environment.GetEnvironmentVariable("PERCY_LOGLEVEL") == "debug";
-        public static readonly string CLI_API =
-            Environment.GetEnvironmentVariable("PERCY_CLI_API") ?? "http://localhost:5338";
+        public static readonly string CLI_API = ResolveCliApi();
         
         public static readonly string RESPONSIVE_CAPTURE_SLEEP_TIME =
              Environment.GetEnvironmentVariable("RESPONSIVE_CAPTURE_SLEEP_TIME")
@@ -1410,9 +1409,33 @@ namespace PercyIO.Selenium
             return null;
         }
 
+        // `percy exec --port N` only exports PERCY_SERVER_ADDRESS, so honour it after the
+        // SDK-specific PERCY_CLI_API.
+        internal static string ResolveCliApi()
+        {
+            foreach (string name in new[] { "PERCY_CLI_API", "PERCY_SERVER_ADDRESS" })
+            {
+                string? value = Environment.GetEnvironmentVariable(name);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value!.TrimEnd('/');
+            }
+            return "http://localhost:5338";
+        }
+
+        internal static List<int> ParseWidths(object? widths)
+        {
+            if (widths == null)
+                return new List<int>();
+            if (widths is IEnumerable<int> ints)
+                return ints.ToList();
+            if (widths is System.Collections.IEnumerable items && !(widths is string))
+                return items.Cast<object>().Select(w => Convert.ToInt32(w, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+            throw new ArgumentException($"widths must be a collection of integers, got {widths.GetType().Name}");
+        }
+
         public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
         {
-            List<int> widths = options != null && options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
+            List<int> widths = ParseWidths(options != null && options.ContainsKey("widths") ? options["widths"] : null);
             List<ResponsiveWidth> widthHeights = GetResponsiveWidths(widths);
 
             var domSnapshots = new List<Dictionary<string, object>>();
