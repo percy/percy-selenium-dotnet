@@ -9,6 +9,8 @@ on:
         required: false
         type: string
         default: master
+permissions:
+  contents: read
 jobs:
   test:
     name: Test
