@@ -5,5 +5,10 @@
   },
   "devDependencies": {
     "@percy/cli": "^1.31.15-beta.0"
+  },
+  "overrides": {
+    "systeminformation": "^5.31.7",
+    "fast-uri": "^3.1.9",
+    "basic-ftp": "^6.2.3"
   }
 }

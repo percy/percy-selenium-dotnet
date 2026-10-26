@@ -20,7 +20,8 @@ jobs:
           restore-keys: ${{ runner.os }}/nuget-6.0.x/
       - name: Install OpenSSL 1.1
         run: |
-          wget https://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
+          wget -q https://security.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
+          echo "7cf39d70a639017d1dd7c8d36daa2258063608688e449fddf40ffdd46f992a78  libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb" | sha256sum -c -
           sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2.24_amd64.deb
       - name: Install Dependencies
         run: dotnet restore
