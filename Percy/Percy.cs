@@ -142,7 +142,7 @@ namespace PercyIO.Selenium
 
         internal static void setSessionType(String? type)
         {
-            sessionType = type;
+            lock (_stateLock) { sessionType = type; }
         }
 
         internal static void setEligibleWidths(object widths)
@@ -182,16 +182,32 @@ namespace PercyIO.Selenium
             };
         }
 
-        private static string? _dom = null;
+        // Guards the cached CLI state (_enabled, _dom, sessionType, ...) against
+        // concurrent snapshots racing with ResetInternalCaches().
+        private static readonly object _stateLock = new object();
+
+        private static volatile string? _dom = null;
         private static string GetPercyDOM()
         {
-            if (_dom != null) return (string) _dom;
-            _dom = Request("/percy/dom.js").content;
-            return (string) _dom;
+            var dom = _dom;
+            if (dom != null) return dom;
+            dom = Request("/percy/dom.js").content;
+            _dom = dom;
+            return dom;
+        }
+
+        internal static string? CurrentSessionType()
+        {
+            lock (_stateLock) { return sessionType; }
         }
 
         private static bool? _enabled = null;
         public static Func<bool> Enabled = () =>
+        {
+            lock (_stateLock) { return CheckEnabled(); }
+        };
+
+        private static bool CheckEnabled()
         {
             if (_enabled != null) return (bool) _enabled;
 
@@ -234,7 +250,7 @@ namespace PercyIO.Selenium
                 Log<Exception>(error, "debug");
                 return (bool) (_enabled = false);
             }
-        };
+        }
         public class Region 
         { 
             public RegionElementSelector elementSelector { get; set; } 
@@ -1426,10 +1442,7 @@ namespace PercyIO.Selenium
             driver.ExecuteScript("PercyDOM.waitForResize()");
             int targetHeight = ResolveResponsiveTargetHeight(driver, options, currentHeight);
 
-             if (_dom == null)
-             {
-                 _dom = GetPercyDOM();
-             }
+             string dom = GetPercyDOM();
 
             foreach (ResponsiveWidth widthHeight in widthHeights)
             {
@@ -1466,7 +1479,7 @@ namespace PercyIO.Selenium
                 if (Int32.TryParse(ResponsiveCaptureSleepTime, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
-                var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);
+                var domSnapshot =  getSerializedDom(driver, cookies, options, dom);
                 domSnapshot["width"] = width;
                 domSnapshots.Add(domSnapshot);
             }
@@ -1614,7 +1627,7 @@ namespace PercyIO.Selenium
             Dictionary<string, object>? options = null)
         {
             if (!Enabled()) return null;
-            if (sessionType == "automate")
+            if (CurrentSessionType() == "automate")
                 throw new Exception("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual");
 
             try
@@ -1622,9 +1635,8 @@ namespace PercyIO.Selenium
                 if ((bool) driver.ExecuteScript("return !!window.PercyDOM") == false)
                     driver.ExecuteScript(GetPercyDOM());
 
-                // Ensure _dom is populated for CORS iframe processing
-                if (_dom == null)
-                    _dom = GetPercyDOM();
+                // Ensure the DOM script is cached for CORS iframe processing
+                string dom = GetPercyDOM();
 
                 // Expose closed shadow roots via CDP before serializing so
                 // PercyDOM.serialize() can pick them up through the WeakMap.
@@ -1640,7 +1652,7 @@ namespace PercyIO.Selenium
                 if (isResponsiveSnapshotCapture(mergedOptions)) {
                     domSnapshot = CaptureResponsiveDom(driver, cookies, mergedOptions);
                 } else {
-                    domSnapshot = getSerializedDom(driver, cookies, mergedOptions, _dom);
+                    domSnapshot = getSerializedDom(driver, cookies, mergedOptions, dom);
                 }
 
                 Options snapshotOptions = new Options {
@@ -1691,7 +1703,7 @@ namespace PercyIO.Selenium
             Dictionary<string, object>? options = null)
         {
             if(!Enabled()) return null;
-            if (sessionType != "automate")
+            if (CurrentSessionType() != "automate")
                 throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview");
             try
             {
@@ -1868,11 +1880,14 @@ namespace PercyIO.Selenium
 
         public static void ResetInternalCaches()
         {
-            _enabled = null;
-            _dom = null;
-            sessionType = null;
-            eligibleWidths = null;
-            cliConfig = null;
+            lock (_stateLock)
+            {
+                _enabled = null;
+                _dom = null;
+                sessionType = null;
+                eligibleWidths = null;
+                cliConfig = null;
+            }
             // Restore the test-flippable env mirrors and parse seam to their
             // env-derived defaults so per-test overrides cannot leak. In
             // production this is a no-op reassignment to the same values.
