@@ -182,8 +182,8 @@ namespace PercyIO.Selenium
             };
         }
 
-        // Guards the cached CLI state (_enabled, _dom, sessionType, ...) against
-        // concurrent snapshots racing with ResetInternalCaches().
+        // Serialises _enabled/sessionType against ResetInternalCaches(); held across the
+        // first healthcheck. _dom is volatile; cliConfig/eligibleWidths are reset-only.
         private static readonly object _stateLock = new object();
 
         private static volatile string? _dom = null;
@@ -1635,7 +1635,7 @@ namespace PercyIO.Selenium
                 if ((bool) driver.ExecuteScript("return !!window.PercyDOM") == false)
                     driver.ExecuteScript(GetPercyDOM());
 
-                // Ensure the DOM script is cached for CORS iframe processing
+                // CORS iframe serialisation needs the DOM script
                 string dom = GetPercyDOM();
 
                 // Expose closed shadow roots via CDP before serializing so

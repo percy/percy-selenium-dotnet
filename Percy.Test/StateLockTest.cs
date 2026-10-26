@@ -20,7 +20,7 @@ namespace PercyIO.Selenium.Tests
         }
 
         [Fact]
-        public void ResetInternalCaches_ConcurrentWithSessionTypeReads_NeverTears()
+        public void ResetInternalCaches_ConcurrentWithSessionTypeReads_SeesOnlyKnownValues()
         {
             var writer = Task.Run(() =>
             {
