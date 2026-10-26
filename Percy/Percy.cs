@@ -182,17 +182,22 @@ namespace PercyIO.Selenium
             };
         }
 
-        // Serialises _enabled/sessionType against ResetInternalCaches(); held across the
-        // first healthcheck. _dom is volatile; cliConfig/eligibleWidths are reset-only.
+        // Guards _enabled/sessionType/eligibleWidths/cliConfig/_cacheGen; never held
+        // across HTTP. Fetches publish only if no ResetInternalCaches() ran meanwhile.
         private static readonly object _stateLock = new object();
+        // Single-flights the first healthcheck. Lock order: _healthcheckLock -> _stateLock.
+        private static readonly object _healthcheckLock = new object();
+        private static int _cacheGen = 0;
 
         private static volatile string? _dom = null;
         private static string GetPercyDOM()
         {
             var dom = _dom;
             if (dom != null) return dom;
+            int gen;
+            lock (_stateLock) { gen = _cacheGen; }
             dom = Request("/percy/dom.js").content;
-            _dom = dom;
+            lock (_stateLock) { if (gen == _cacheGen) _dom = dom; }
             return dom;
         }
 
@@ -204,13 +209,20 @@ namespace PercyIO.Selenium
         private static bool? _enabled = null;
         public static Func<bool> Enabled = () =>
         {
-            lock (_stateLock) { return CheckEnabled(); }
+            lock (_healthcheckLock)
+            {
+                int gen;
+                lock (_stateLock)
+                {
+                    if (_enabled != null) return (bool) _enabled;
+                    gen = _cacheGen;
+                }
+                return CheckEnabled(gen);
+            }
         };
 
-        private static bool CheckEnabled()
+        private static bool CheckEnabled(int gen)
         {
-            if (_enabled != null) return (bool) _enabled;
-
             try
             {
                 dynamic res = Request("/percy/healthcheck");
@@ -226,29 +238,44 @@ namespace PercyIO.Selenium
                         "which is no longer supported by this SDK. " +
                         "Please uninstall @percy/agent and install @percy/cli instead. " +
                         "https://www.browserstack.com/docs/percy/migration/migrate-to-cli");
-                    return (bool) (_enabled = false);
+                    return CommitHealthcheck(gen, false);
                 }
                 else if (res.version[0] != '1')
                 {
                     Log($"Unsupported Percy CLI version, {res.version}");
-                    return (bool) (_enabled = false);
+                    return CommitHealthcheck(gen, false);
                 }
                 else
                 {
                     data.TryGetProperty("type", out JsonElement type);
                     data.TryGetProperty("widths", out JsonElement widths);
                     data.TryGetProperty("config", out JsonElement config);
-                    setEligibleWidths(widths);
-                    setSessionType(type.ToString());
-                    setCliConfig(config);
-                    return (bool) (_enabled = true);
+                    return CommitHealthcheck(gen, true, type.ToString(), widths, config);
                 }
             }
             catch (Exception error)
             {
                 Log("Percy is not running, disabling snapshots");
                 Log<Exception>(error, "debug");
-                return (bool) (_enabled = false);
+                return CommitHealthcheck(gen, false);
+            }
+        }
+
+        // Publishes the healthcheck result unless a reset happened while it was in flight.
+        private static bool CommitHealthcheck(int gen, bool enabled,
+            string? type = null, object? widths = null, object? config = null)
+        {
+            lock (_stateLock)
+            {
+                if (gen != _cacheGen) return enabled;
+                if (enabled)
+                {
+                    eligibleWidths = widths;
+                    sessionType = type;
+                    cliConfig = config;
+                }
+                _enabled = enabled;
+                return enabled;
             }
         }
         public class Region 
@@ -1882,6 +1909,7 @@ namespace PercyIO.Selenium
         {
             lock (_stateLock)
             {
+                _cacheGen++;
                 _enabled = null;
                 _dom = null;
                 sessionType = null;
