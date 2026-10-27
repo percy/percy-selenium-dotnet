@@ -65,7 +65,7 @@ namespace PercyIO.Selenium
                     exposed += pairs.Count;
                     scopes = pairs.Select(p => p.root).ToList();
                 }
-                Log($"Exposed {exposed} closed shadow root(s) via BiDi", "debug");
+                if (exposed > 0) Log($"Exposed {exposed} closed shadow root(s) via BiDi", "debug");
                 return true;
             }
             catch (Exception e)
@@ -121,7 +121,7 @@ namespace PercyIO.Selenium
                         queue.Enqueue(nested);
                     exposed++;
                 }
-                Log($"Exposed {exposed} closed shadow root(s) via WebDriver classic ({checkedHosts} host(s) checked)", "debug");
+                if (exposed > 0) Log($"Exposed {exposed} closed shadow root(s) via WebDriver classic ({checkedHosts} host(s) checked)", "debug");
             }
             catch (Exception e)
             {

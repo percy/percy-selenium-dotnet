@@ -366,7 +366,7 @@ namespace PercyIO.Selenium.Tests
             var driver = new FakeChromeWebDriver(FakeDriverFactory.ChromeCaps());
             WireWindow(driver, border: 0, minWidth: 0);
             Percy.Snapshot(driver, "Already at width");
-            Assert.Single(driver.CdpCommands.Where(c => c == "Emulation.setDeviceMetricsOverride"));
+            Assert.Single(driver.CdpCommands, c => c == "Emulation.setDeviceMetricsOverride");
         }
 
         // ===== window-delta path ================================================
@@ -435,7 +435,7 @@ namespace PercyIO.Selenium.Tests
             server.Responder = (method, p) => method == "browsingContext.setViewport" ? FakeBiDiServer.Error : "{}";
             var driver = StandardDriver(new FakeWebDriver(FakeDriverFactory.Caps("firefox", server.Url)));
             Percy.Snapshot(driver, "BiDi fails");
-            Assert.Single(server.Received.Where(r => r.method == "browsingContext.setViewport"));
+            Assert.Single(server.Received, r => r.method == "browsingContext.setViewport");
             Assert.Contains(DriverCommand.SetWindowRect, driver.Commands);
         }
 
@@ -465,7 +465,7 @@ namespace PercyIO.Selenium.Tests
             StandardDriver(driver);
             driver.CdpThrows = true;
             Percy.Snapshot(driver, "CDP then BiDi");
-            Assert.Single(driver.CdpCommands.Where(c => c == "Emulation.setDeviceMetricsOverride"));
+            Assert.Single(driver.CdpCommands, c => c == "Emulation.setDeviceMetricsOverride");
             Assert.Equal(3, server.Received.Count(r => r.method == "browsingContext.setViewport"));
         }
 
@@ -718,7 +718,7 @@ namespace PercyIO.Selenium.Tests
             var setCalls = new List<List<object>>();
             var driver = ClassicDriver(new FakeWebDriver(FakeDriverFactory.LocalExecutor(), FakeDriverFactory.Caps("firefox", server.Url)), setCalls);
             Percy.ExposeClosedShadowRoots(driver);
-            Assert.Single(server.Received.Where(r => r.method == "script.callFunction"));
+            Assert.Single(server.Received, r => r.method == "script.callFunction");
             Assert.Equal(2, setCalls.Count);
         }
 
