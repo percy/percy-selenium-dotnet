@@ -979,7 +979,7 @@ namespace PercyIO.Selenium.Tests
             Assert.Contains(DriverCommand.SwitchToParentFrame, driver.Commands);
         }
 
-        // ===== TryResizeWithCdp: chrome but no ExecuteCdpCommand method =======
+        // ===== Remote Chrome whose hub rejects goog/cdp/execute ===============
 
         [Fact]
         public void ResponsiveCapture_ChromeWithoutCdpMethod_FallsBackToWindowSize()
@@ -991,10 +991,12 @@ namespace PercyIO.Selenium.Tests
             Percy.setHttpClient(new HttpClient(ResponsiveMock("{\"widths\":[375,1280]}")));
 
             // Plain FakeWebDriver with chrome caps but NO ExecuteCdpCommand method →
-            // TryResizeWithCdp finds the method == null → returns false → Window.Size.
+            // CDP goes through the remote goog/cdp/execute command; when the hub
+            // rejects it, the resize falls back to Window.Size.
             var driver = new FakeWebDriver(FakeDriverFactory.ChromeCaps());
             driver.Handler = (cmd, p) =>
             {
+                if (cmd.StartsWith("percyGoogCdpExecute")) throw new WebDriverException("unknown command");
                 if (cmd == DriverCommand.GetWindowRect || cmd == DriverCommand.SetWindowRect)
                     return new Dictionary<string, object> { { "width", 1280L }, { "height", 1024L }, { "x", 0L }, { "y", 0L } };
                 if (cmd == DriverCommand.GetAllCookies) return new object[0];
