@@ -492,7 +492,7 @@ namespace PercyIO.Selenium.Tests
         {
             Assert.False(Percy.BiDiSession.HasWebSocketUrl(new FakeWebDriver(FakeDriverFactory.FirefoxCaps())));
             Assert.False(Percy.BiDiSession.HasWebSocketUrl(new FakeWebDriver(FakeDriverFactory.Caps("firefox", ""))));
-            Assert.True(Percy.BiDiSession.HasWebSocketUrl(new FakeWebDriver(FakeDriverFactory.Caps("firefox", "ws://x"))));
+            Assert.True(Percy.BiDiSession.HasWebSocketUrl(new FakeWebDriver(FakeDriverFactory.Caps("firefox", "wss://hub.example.test/session/x"))));
         }
 
         [Fact]
