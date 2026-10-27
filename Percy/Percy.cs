@@ -19,12 +19,11 @@ using Newtonsoft.Json.Linq;
 
 namespace PercyIO.Selenium
 {
-    public static class Percy
+    public static partial class Percy
     {
         public static readonly bool DEBUG =
             Environment.GetEnvironmentVariable("PERCY_LOGLEVEL") == "debug";
-        public static readonly string CLI_API =
-            Environment.GetEnvironmentVariable("PERCY_CLI_API") ?? "http://localhost:5338";
+        public static readonly string CLI_API = ResolveCliApi();
         
         public static readonly string RESPONSIVE_CAPTURE_SLEEP_TIME =
              Environment.GetEnvironmentVariable("RESPONSIVE_CAPTURE_SLEEP_TIME")
@@ -844,30 +843,16 @@ namespace PercyIO.Selenium
             return corsIframes;
         }
 
-        // Use Chrome DevTools Protocol to discover closed shadow roots (which are
-        // invisible to JS — `el.shadowRoot` is null) and expose each one to the
-        // page via a window-bound WeakMap. PercyDOM.serialize() looks up the map
-        // when cloning shadow hosts so the closed content is included in the
-        // snapshot. No-op on non-Chrome drivers / when CDP isn't reachable.
-        // Re-prime after page reloads — the WeakMap lives on `window` and is
-        // wiped along with the rest of the document.
-        internal static void ExposeClosedShadowRoots(WebDriver driver)
+        // Closed shadow roots are invisible to page JS (`el.shadowRoot` is null), so
+        // expose each one through the window-bound WeakMap PercyDOM.serialize()
+        // reads. First available strategy wins: CDP (any Chromium driver, local or
+        // remote), then BiDi (session already has webSocketUrl), then classic
+        // Get Element Shadow Root. Re-prime after page reloads: the map lives on
+        // `window` and is wiped with the document.
+        internal static void ExposeClosedShadowRoots(WebDriver driver, Dictionary<string, object>? options = null)
         {
-            if (!IsChromeBrowser(driver)) return;
-            MethodInfo? executeCdp = driver.GetType().GetMethod(
-                "ExecuteCdpCommand", new[] { typeof(string), typeof(Dictionary<string, object>) });
-            if (executeCdp == null)
-            {
-                Log("ExecuteCdpCommand unavailable on driver; skipping closed shadow root exposure", "debug");
-                return;
-            }
+            if (IsTruthyOption(options, "disableShadowDOM")) return;
 
-            // Adapt the reflected MethodInfo to a Func so the core flow can be
-            // unit-tested with a fake invoker. ScriptRunner is a small adapter
-            // around driver.ExecuteScript for the same reason.
-            Func<string, Dictionary<string, object>, object?> cdpInvoker = (cmd, args) =>
-                executeCdp.Invoke(driver, new object[] { cmd, args ?? new Dictionary<string, object>() });
-            Action<string> scriptRunner = (script) => driver.ExecuteScript(script);
             Func<string> pageUrlGetter = () => {
                 try { return driver.Url ?? ""; }
                 catch (Exception e) {
@@ -876,14 +861,23 @@ namespace PercyIO.Selenium
                 }
             };
 
-            RunClosedShadowRootExposure(cdpInvoker, scriptRunner, pageUrlGetter);
+            var cdpInvoker = ResolveCdpInvoker(driver);
+            if (cdpInvoker != null &&
+                RunClosedShadowRootExposure(cdpInvoker, (script) => driver.ExecuteScript(script), pageUrlGetter))
+                return;
+
+            if (BiDiSession.HasWebSocketUrl(driver) && ExposeClosedShadowRootsViaBiDi(driver)) return;
+
+            ExposeClosedShadowRootsViaClassic(driver);
         }
 
         // Pure-logic core of ExposeClosedShadowRoots, factored out so unit
         // tests can drive it with a fake CDP invoker and assert that
         // DOM.disable always runs in the finally branch when DOM.enable
         // succeeded — and stays unsent when DOM.enable itself threw.
-        internal static void RunClosedShadowRootExposure(
+        // Returns false only when CDP itself is unusable, so the caller can try the
+        // next strategy.
+        internal static bool RunClosedShadowRootExposure(
             Func<string, Dictionary<string, object>, object?> cdpInvoker,
             Action<string> scriptRunner,
             Func<string> pageUrlGetter)
@@ -896,13 +890,13 @@ namespace PercyIO.Selenium
 
                 var getDocResult = cdpInvoker("DOM.getDocument",
                     new Dictionary<string, object> { ["depth"] = -1, ["pierce"] = true });
-                if (getDocResult == null) return;
+                if (getDocResult == null) return true;
 
                 // The .NET ExecuteCdpCommand returns a Dictionary<string, object>
                 // whose values are JSON-decoded. Pull out the root node and walk it.
                 var docDict = getDocResult as IDictionary<string, object>;
                 if (docDict == null || !docDict.TryGetValue("root", out object? rootObj) || rootObj == null)
-                    return;
+                    return true;
 
                 // Compute the top-level page origin once so the walker can
                 // recurse INTO same-origin child frame documents (those share
@@ -913,7 +907,7 @@ namespace PercyIO.Selenium
                 var closedPairs = new List<(long host, long shadow)>();
                 CollectClosedShadowRoots(rootObj, closedPairs, pageOrigin);
 
-                if (closedPairs.Count == 0) return;
+                if (closedPairs.Count == 0) return true;
                 Log($"Found {closedPairs.Count} closed shadow root(s), exposing via CDP", "debug");
 
                 // Prime the WeakMap on the page first (same key as PercyDOM uses).
@@ -948,10 +942,12 @@ namespace PercyIO.Selenium
                         Log($"Failed to expose one closed shadow root: {e.Message}", "debug");
                     }
                 }
+                return true;
             }
             catch (Exception e)
             {
-                Log($"Could not expose closed shadow roots via CDP: {e.Message}", "debug");
+                Log($"Could not expose closed shadow roots via CDP: {UnwrapMessage(e)}", "debug");
+                return false;
             }
             finally
             {
@@ -1222,77 +1218,6 @@ namespace PercyIO.Selenium
             return domSnapshot;
         }
 
-        private static bool IsChromeBrowser(WebDriver driver)
-        {
-            if (driver is ChromeDriver)
-            {
-                return true;
-            }
-
-            if (driver is IHasCapabilities hasCapabilities)
-            {
-                object? browserName = hasCapabilities.Capabilities?.GetCapability("browserName");
-                return browserName?.ToString()?.Equals("chrome", StringComparison.OrdinalIgnoreCase) == true;
-            }
-
-            return false;
-        }
-
-        private static bool TryResizeWithCdp(WebDriver driver, int width, int height)
-        {
-            if (!IsChromeBrowser(driver))
-            {
-                return false;
-            }
-
-            MethodInfo? executeCdpMethod = driver.GetType().GetMethod("ExecuteCdpCommand", new[] { typeof(string), typeof(Dictionary<string, object>) });
-            if (executeCdpMethod == null)
-            {
-                return false;
-            }
-
-            var commandParams = new Dictionary<string, object>
-            {
-                { "width", width },
-                { "height", height },
-                { "deviceScaleFactor", 1 },
-                { "mobile", false }
-            };
-
-            executeCdpMethod.Invoke(driver, new object[] { "Emulation.setDeviceMetricsOverride", commandParams });
-            return true;
-        }
-
-        private static void ChangeWindowDimensionAndWait(WebDriver driver, int width, int height, int resizeCount)
-        {
-            try
-            {
-                if (TryResizeWithCdp(driver, width, height))
-                {
-                    Log($"Attempting to resize using CDP for width {width} and height {height}", "debug");
-                }
-                else
-                {
-                    driver.Manage().Window.Size = new System.Drawing.Size(width, height);
-                }
-            }
-            catch (Exception e)
-            {
-                Log($"Resizing using CDP failed, falling back to driver for width {width}: {e.Message}", "debug");
-                driver.Manage().Window.Size = new System.Drawing.Size(width, height);
-            }
-            // Wait for window resize event using WebDriverWait
-            try
-            {
-                WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(1));
-                wait.Until(d => (long)((IJavaScriptExecutor)d).ExecuteScript("return window.resizeCount") == resizeCount);
-            }
-            catch (WebDriverTimeoutException)
-            {
-                Log($"Timed out waiting for window resize event for width {width}", "debug");
-            }
-        }
-
         private class ResponsiveWidth
         {
             public int width { get; set; }
@@ -1410,9 +1335,33 @@ namespace PercyIO.Selenium
             return null;
         }
 
+        // `percy exec --port N` only exports PERCY_SERVER_ADDRESS, so honour it after the
+        // SDK-specific PERCY_CLI_API.
+        internal static string ResolveCliApi()
+        {
+            foreach (string name in new[] { "PERCY_CLI_API", "PERCY_SERVER_ADDRESS" })
+            {
+                string? value = Environment.GetEnvironmentVariable(name);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value!.TrimEnd('/');
+            }
+            return "http://localhost:5338";
+        }
+
+        internal static List<int> ParseWidths(object? widths)
+        {
+            if (widths == null)
+                return new List<int>();
+            if (widths is IEnumerable<int> ints)
+                return ints.ToList();
+            if (widths is System.Collections.IEnumerable items && !(widths is string))
+                return items.Cast<object>().Select(w => Convert.ToInt32(w, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+            throw new ArgumentException($"widths must be a collection of integers, got {widths.GetType().Name}");
+        }
+
         public static List<Dictionary<string, object>> CaptureResponsiveDom(WebDriver driver, object cookies, Dictionary<string, object> options)
         {
-            List<int> widths = options != null && options.ContainsKey("widths") ? (List<int>)options["widths"] : new List<int>();
+            List<int> widths = ParseWidths(options != null && options.ContainsKey("widths") ? options["widths"] : null);
             List<ResponsiveWidth> widthHeights = GetResponsiveWidths(widths);
 
             var domSnapshots = new List<Dictionary<string, object>>();
@@ -1420,7 +1369,6 @@ namespace PercyIO.Selenium
             var windowSize = driver.Manage().Window.Size;
             int currentWidth = windowSize.Width;
             int currentHeight = windowSize.Height;
-            int lastWindowWidth = currentWidth;
             int resizeCount = 0;
             int sleepTime = 0;
             driver.ExecuteScript("PercyDOM.waitForResize()");
@@ -1431,16 +1379,19 @@ namespace PercyIO.Selenium
                  _dom = GetPercyDOM();
              }
 
+            using var viewport = new ResponsiveViewport(driver, ResolveExactResponsiveWidth(options));
+            int lastWidth = viewport.InitialWidth(currentWidth);
+
             foreach (ResponsiveWidth widthHeight in widthHeights)
             {
                 int width = widthHeight.width;
                 int? height = widthHeight.height;
                 int heightForWidth = height.HasValue ? height.Value : targetHeight;
 
-                if (lastWindowWidth != width) {
+                if (lastWidth != width) {
                     resizeCount++;
-                    ChangeWindowDimensionAndWait(driver, width, heightForWidth, resizeCount);
-                    lastWindowWidth = width;
+                    viewport.Resize(width, heightForWidth, resizeCount);
+                    lastWidth = width;
                 }
 
                 if (ResponsiveCaptureReloadPage)
@@ -1454,7 +1405,7 @@ namespace PercyIO.Selenium
                         }
                         // Re-prime the closed shadow root WeakMap — page reload
                         // creates a fresh document and the previous map is gone.
-                        ExposeClosedShadowRoots(driver);
+                        ExposeClosedShadowRoots(driver, options);
                         driver.ExecuteScript("PercyDOM.waitForResize()");
                         resizeCount = 0;
                     }
@@ -1471,7 +1422,7 @@ namespace PercyIO.Selenium
                 domSnapshots.Add(domSnapshot);
             }
 
-            ChangeWindowDimensionAndWait(driver, currentWidth, currentHeight, resizeCount + 1);
+            viewport.Restore(currentWidth, currentHeight, resizeCount + 1);
 
             return domSnapshots;
         }
@@ -1626,13 +1577,10 @@ namespace PercyIO.Selenium
                 if (_dom == null)
                     _dom = GetPercyDOM();
 
-                // Expose closed shadow roots via CDP before serializing so
-                // PercyDOM.serialize() can pick them up through the WeakMap.
-                // Non-Chrome browsers and missing ExecuteCdpCommand are no-ops.
-                ExposeClosedShadowRoots(driver);
-
                 // Merge .percy.yml config options with snapshot options (snapshot options take priority)
                 var mergedOptions = MergeSnapshotOptions(options);
+
+                ExposeClosedShadowRoots(driver, mergedOptions);
 
                 var cookies = driver.Manage().Cookies.AllCookies;
                 dynamic domSnapshot = null;
@@ -1881,6 +1829,10 @@ namespace PercyIO.Selenium
             ResponsiveCaptureReloadPage = PERCY_RESPONSIVE_CAPTURE_RELOAD_PAGE;
             ResponsiveCaptureSleepTime = RESPONSIVE_CAPTURE_SLEEP_TIME;
             MinHeightParser = DefaultMinHeightParser;
+            ClosedShadowMaxHostsSetting = Environment.GetEnvironmentVariable("PERCY_CLOSED_SHADOW_MAX_HOSTS");
+            ClosedShadowClassicSetting = Environment.GetEnvironmentVariable("PERCY_CLOSED_SHADOW_CLASSIC");
+            ResetViewportState();
+            ResetClosedShadowState();
         }
     }
 
