@@ -142,7 +142,7 @@ namespace PercyIO.Selenium
 
         internal static void setSessionType(String? type)
         {
-            sessionType = type;
+            lock (_stateLock) { sessionType = type; }
         }
 
         internal static void setEligibleWidths(object widths)
@@ -182,19 +182,47 @@ namespace PercyIO.Selenium
             };
         }
 
-        private static string? _dom = null;
+        // Guards _enabled/sessionType/eligibleWidths/cliConfig/_cacheGen; never held
+        // across HTTP. Fetches publish only if no ResetInternalCaches() ran meanwhile.
+        private static readonly object _stateLock = new object();
+        // Single-flights the first healthcheck. Lock order: _healthcheckLock -> _stateLock.
+        private static readonly object _healthcheckLock = new object();
+        private static int _cacheGen = 0;
+
+        private static volatile string? _dom = null;
         private static string GetPercyDOM()
         {
-            if (_dom != null) return (string) _dom;
-            _dom = Request("/percy/dom.js").content;
-            return (string) _dom;
+            var dom = _dom;
+            if (dom != null) return dom;
+            int gen;
+            lock (_stateLock) { gen = _cacheGen; }
+            dom = Request("/percy/dom.js").content;
+            lock (_stateLock) { if (gen == _cacheGen) _dom = dom; }
+            return dom;
+        }
+
+        internal static string? CurrentSessionType()
+        {
+            lock (_stateLock) { return sessionType; }
         }
 
         private static bool? _enabled = null;
         public static Func<bool> Enabled = () =>
         {
-            if (_enabled != null) return (bool) _enabled;
+            lock (_healthcheckLock)
+            {
+                int gen;
+                lock (_stateLock)
+                {
+                    if (_enabled != null) return (bool) _enabled;
+                    gen = _cacheGen;
+                }
+                return CheckEnabled(gen);
+            }
+        };
 
+        private static bool CheckEnabled(int gen)
+        {
             try
             {
                 dynamic res = Request("/percy/healthcheck");
@@ -210,31 +238,46 @@ namespace PercyIO.Selenium
                         "which is no longer supported by this SDK. " +
                         "Please uninstall @percy/agent and install @percy/cli instead. " +
                         "https://www.browserstack.com/docs/percy/migration/migrate-to-cli");
-                    return (bool) (_enabled = false);
+                    return CommitHealthcheck(gen, false);
                 }
                 else if (res.version[0] != '1')
                 {
                     Log($"Unsupported Percy CLI version, {res.version}");
-                    return (bool) (_enabled = false);
+                    return CommitHealthcheck(gen, false);
                 }
                 else
                 {
                     data.TryGetProperty("type", out JsonElement type);
                     data.TryGetProperty("widths", out JsonElement widths);
                     data.TryGetProperty("config", out JsonElement config);
-                    setEligibleWidths(widths);
-                    setSessionType(type.ToString());
-                    setCliConfig(config);
-                    return (bool) (_enabled = true);
+                    return CommitHealthcheck(gen, true, type.ToString(), widths, config);
                 }
             }
             catch (Exception error)
             {
                 Log("Percy is not running, disabling snapshots");
                 Log<Exception>(error, "debug");
-                return (bool) (_enabled = false);
+                return CommitHealthcheck(gen, false);
             }
-        };
+        }
+
+        // Publishes the healthcheck result unless a reset happened while it was in flight.
+        private static bool CommitHealthcheck(int gen, bool enabled,
+            string? type = null, object? widths = null, object? config = null)
+        {
+            lock (_stateLock)
+            {
+                if (gen != _cacheGen) return enabled;
+                if (enabled)
+                {
+                    eligibleWidths = widths;
+                    sessionType = type;
+                    cliConfig = config;
+                }
+                _enabled = enabled;
+                return enabled;
+            }
+        }
         public class Region 
         { 
             public RegionElementSelector elementSelector { get; set; } 
@@ -1426,10 +1469,7 @@ namespace PercyIO.Selenium
             driver.ExecuteScript("PercyDOM.waitForResize()");
             int targetHeight = ResolveResponsiveTargetHeight(driver, options, currentHeight);
 
-             if (_dom == null)
-             {
-                 _dom = GetPercyDOM();
-             }
+             string dom = GetPercyDOM();
 
             foreach (ResponsiveWidth widthHeight in widthHeights)
             {
@@ -1466,7 +1506,7 @@ namespace PercyIO.Selenium
                 if (Int32.TryParse(ResponsiveCaptureSleepTime, out sleepTime))
                     Thread.Sleep(sleepTime * 1000);
 
-                var domSnapshot =  getSerializedDom(driver, cookies, options, _dom);
+                var domSnapshot =  getSerializedDom(driver, cookies, options, dom);
                 domSnapshot["width"] = width;
                 domSnapshots.Add(domSnapshot);
             }
@@ -1614,7 +1654,7 @@ namespace PercyIO.Selenium
             Dictionary<string, object>? options = null)
         {
             if (!Enabled()) return null;
-            if (sessionType == "automate")
+            if (CurrentSessionType() == "automate")
                 throw new Exception("Invalid function call - Snapshot(). Please use Screenshot() function while using Percy with Automate. For more information on usage of Screenshot, refer https://www.browserstack.com/docs/percy/integrate/functional-and-visual");
 
             try
@@ -1622,9 +1662,8 @@ namespace PercyIO.Selenium
                 if ((bool) driver.ExecuteScript("return !!window.PercyDOM") == false)
                     driver.ExecuteScript(GetPercyDOM());
 
-                // Ensure _dom is populated for CORS iframe processing
-                if (_dom == null)
-                    _dom = GetPercyDOM();
+                // CORS iframe serialisation needs the DOM script
+                string dom = GetPercyDOM();
 
                 // Expose closed shadow roots via CDP before serializing so
                 // PercyDOM.serialize() can pick them up through the WeakMap.
@@ -1640,7 +1679,7 @@ namespace PercyIO.Selenium
                 if (isResponsiveSnapshotCapture(mergedOptions)) {
                     domSnapshot = CaptureResponsiveDom(driver, cookies, mergedOptions);
                 } else {
-                    domSnapshot = getSerializedDom(driver, cookies, mergedOptions, _dom);
+                    domSnapshot = getSerializedDom(driver, cookies, mergedOptions, dom);
                 }
 
                 Options snapshotOptions = new Options {
@@ -1691,7 +1730,7 @@ namespace PercyIO.Selenium
             Dictionary<string, object>? options = null)
         {
             if(!Enabled()) return null;
-            if (sessionType != "automate")
+            if (CurrentSessionType() != "automate")
                 throw new Exception("Invalid function call - Screenshot(). Please use Snapshot() function for taking screenshot. Screenshot() should be used only while using Percy with Automate. For more information on usage of PercySnapshot(), refer doc for your language https://www.browserstack.com/docs/percy/integrate/overview");
             try
             {
@@ -1868,11 +1907,15 @@ namespace PercyIO.Selenium
 
         public static void ResetInternalCaches()
         {
-            _enabled = null;
-            _dom = null;
-            sessionType = null;
-            eligibleWidths = null;
-            cliConfig = null;
+            lock (_stateLock)
+            {
+                _cacheGen++;
+                _enabled = null;
+                _dom = null;
+                sessionType = null;
+                eligibleWidths = null;
+                cliConfig = null;
+            }
             // Restore the test-flippable env mirrors and parse seam to their
             // env-derived defaults so per-test overrides cannot leak. In
             // production this is a no-op reassignment to the same values.
