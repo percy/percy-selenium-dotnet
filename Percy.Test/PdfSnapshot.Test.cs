@@ -136,10 +136,10 @@ namespace PercyIO.Selenium.Tests
         private static MockHttpMessageHandler StubbedCli(string pdfSnapshotResponse)
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/healthcheck")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/healthcheck")
                 .Respond(new Dictionary<string, string> { { "x-percy-core-version", "1.0.0" } },
                          "application/json", "{\"success\":true}");
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/pdf/snapshot")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/pdf/snapshot")
                 .Respond("application/json", pdfSnapshotResponse);
             mockHttp.Fallback.Respond("application/json", "{}");
             return mockHttp;

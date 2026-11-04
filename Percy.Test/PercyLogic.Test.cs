@@ -566,7 +566,7 @@ namespace PercyIO.Selenium.Tests
         public void GetPercyDOM_FetchesAndCachesDomScript()
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.Expect(HttpMethod.Get, "http://localhost:5338/percy/dom.js")
+            mockHttp.Expect(HttpMethod.Get, Percy.CLI_API + "/percy/dom.js")
                 .Respond("application/javascript", "window.PercyDOM = {};");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -585,7 +585,7 @@ namespace PercyIO.Selenium.Tests
         public void GetResponsiveWidths_ParsesNumberAndObjectWidths()
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/widths-config*")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/widths-config*")
                 .Respond("application/json",
                     "{\"widths\":[375,{\"width\":1280,\"height\":900}]}");
             Percy.setHttpClient(new HttpClient(mockHttp));
@@ -611,7 +611,7 @@ namespace PercyIO.Selenium.Tests
         public void GetResponsiveWidths_ThrowsWhenWidthsMissing()
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/widths-config*")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/widths-config*")
                 .Respond("application/json", "{\"notWidths\":true}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -626,7 +626,7 @@ namespace PercyIO.Selenium.Tests
         public void Log_WritesLabeledMessageToConsole()
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log")
                 .Respond("application/json", "{}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -655,7 +655,7 @@ namespace PercyIO.Selenium.Tests
             Assert.False(Percy.DEBUG);
 
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log")
                 .Respond("application/json", "{}");
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -679,7 +679,7 @@ namespace PercyIO.Selenium.Tests
         {
             // CLI log endpoint failing must not bubble; console output still happens.
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log")
                 .Respond(HttpStatusCode.InternalServerError);
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -706,7 +706,7 @@ namespace PercyIO.Selenium.Tests
             string content, string? version)
         {
             var mockHttp = new MockHttpMessageHandler();
-            var req = mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/healthcheck");
+            var req = mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/healthcheck");
             var headers = new Dictionary<string, string>();
             if (version != null) headers["x-percy-core-version"] = version;
             req.Respond(headers, "application/json", content);
@@ -765,7 +765,7 @@ namespace PercyIO.Selenium.Tests
         public void Enabled_FalseAndDisablesWhenHealthcheckThrows()
         {
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Get, "http://localhost:5338/percy/healthcheck")
+            mockHttp.When(HttpMethod.Get, Percy.CLI_API + "/percy/healthcheck")
                 .Respond(HttpStatusCode.InternalServerError);
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -811,7 +811,7 @@ namespace PercyIO.Selenium.Tests
             // Make the /percy/log POST fail so Log's try-block throws and the
             // catch's DebugEnabled-gated console write executes.
             var mockHttp = new MockHttpMessageHandler();
-            mockHttp.When(HttpMethod.Post, "http://localhost:5338/percy/log")
+            mockHttp.When(HttpMethod.Post, Percy.CLI_API + "/percy/log")
                 .Respond(HttpStatusCode.InternalServerError);
             Percy.setHttpClient(new HttpClient(mockHttp));
 
@@ -947,6 +947,78 @@ namespace PercyIO.Selenium.Tests
             // default parser parses again
             var options = new Dictionary<string, object> { { "minHeight", "55" } };
             Assert.Equal(55, (int?)InvokePrivate("ResolveConfiguredMinHeight", options));
+        }
+
+        // ===== ResolveCliApi ====================================================
+
+        private static string WithCliEnv(string? cliApi, string? serverAddress)
+        {
+            string? oldCliApi = Environment.GetEnvironmentVariable("PERCY_CLI_API");
+            string? oldServerAddress = Environment.GetEnvironmentVariable("PERCY_SERVER_ADDRESS");
+            try
+            {
+                Environment.SetEnvironmentVariable("PERCY_CLI_API", cliApi);
+                Environment.SetEnvironmentVariable("PERCY_SERVER_ADDRESS", serverAddress);
+                return Percy.ResolveCliApi();
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("PERCY_CLI_API", oldCliApi);
+                Environment.SetEnvironmentVariable("PERCY_SERVER_ADDRESS", oldServerAddress);
+            }
+        }
+
+        [Fact]
+        public void ResolveCliApi_PrefersPercyCliApi()
+        {
+            Assert.Equal("http://localhost:1111", WithCliEnv("http://localhost:1111", "http://localhost:2222"));
+        }
+
+        [Fact]
+        public void ResolveCliApi_FallsBackToPercyServerAddress()
+        {
+            Assert.Equal("http://localhost:2222", WithCliEnv(null, "http://localhost:2222/"));
+            Assert.Equal("http://localhost:2222", WithCliEnv("  ", "http://localhost:2222"));
+        }
+
+        [Fact]
+        public void ResolveCliApi_DefaultsToLocalhost5338()
+        {
+            Assert.Equal("http://localhost:5338", WithCliEnv(null, null));
+        }
+
+        // ===== ParseWidths ======================================================
+
+        [Fact]
+        public void ParseWidths_AcceptsIntCollections()
+        {
+            var expected = new List<int> { 375, 1280 };
+            Assert.Equal(expected, Percy.ParseWidths(new[] { 375, 1280 }));
+            Assert.Equal(expected, Percy.ParseWidths(new List<int> { 375, 1280 }));
+            Assert.Equal(expected, Percy.ParseWidths(new[] { 375, 1280 }.Select(w => w)));
+            Assert.Equal(expected, Percy.ParseWidths(new HashSet<int> { 375, 1280 }));
+        }
+
+        [Fact]
+        public void ParseWidths_ConvertsNumericObjectCollections()
+        {
+            var expected = new List<int> { 375, 1280 };
+            Assert.Equal(expected, Percy.ParseWidths(new List<object> { 375L, "1280" }));
+            Assert.Equal(expected, Percy.ParseWidths(new long[] { 375, 1280 }));
+            Assert.Equal(expected, Percy.ParseWidths(JArray.Parse("[375, 1280]")));
+        }
+
+        [Fact]
+        public void ParseWidths_ReturnsEmptyListForNull()
+        {
+            Assert.Empty(Percy.ParseWidths(null));
+        }
+
+        [Fact]
+        public void ParseWidths_RejectsNonCollections()
+        {
+            Assert.Throws<ArgumentException>(() => Percy.ParseWidths("375,1280"));
+            Assert.Throws<ArgumentException>(() => Percy.ParseWidths(375));
         }
     }
 }
