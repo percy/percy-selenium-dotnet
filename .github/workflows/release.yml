@@ -30,7 +30,41 @@ jobs:
       - name: Create Package
         run: dotnet pack --configuration Release Percy
       - name: Publish Package
-        run: dotnet nuget push */bin/Release/*.nupkg -k $NUGET_TOKEN -s $NUGET_SOURCE
+        # `dotnet nuget push` only accepts the API key as a command-line
+        # argument on Linux (nuget.config apikeys need Windows encryption), so
+        # push through the NuGet publish endpoint directly. The key is written
+        # to a private header file by a shell builtin and read by curl, so it
+        # never appears in any process's argument list.
+        run: |
+          umask 077
+          header_file="$(mktemp)"
+          body_file="$(mktemp)"
+          trap 'rm -f "$header_file" "$body_file"' EXIT
+          printf 'X-NuGet-ApiKey: %s\n' "$NUGET_TOKEN" > "$header_file"
+          for package in */bin/Release/*.nupkg; do
+            # Up to 3 attempts on 5xx or network errors, like dotnet nuget push.
+            # --max-time matches its 300s default; only a 2xx means the package
+            # was accepted (a redirect would not be). A 409 fails like it does
+            # for dotnet nuget push: we can't tell this artifact from one
+            # already published under the same version.
+            for attempt in 1 2 3; do
+              echo "Pushing $package (attempt $attempt)"
+              status="$(curl --silent --show-error --connect-timeout 30 --max-time 300 -X PUT \
+                -H "@$header_file" \
+                -F "package=@$package" \
+                -o "$body_file" -w '%{http_code}' \
+                "$NUGET_PUBLISH_URL")" || status=000
+              case "$status" in
+                2??) break ;;
+                409) echo "NuGet already has this package version; if an earlier attempt failed, check nuget.org that it is this build" ;;
+                5??|000) [ "$attempt" -lt 3 ] && { sleep $((attempt * 10)); continue; } ;;
+              esac
+              echo "NuGet push of $package failed with HTTP $status"
+              cat "$body_file"
+              exit 1
+            done
+          done
         env:
-          NUGET_SOURCE: https://api.nuget.org/v3/index.json
+          # PackagePublish/2.0.0 resource from https://api.nuget.org/v3/index.json
+          NUGET_PUBLISH_URL: https://www.nuget.org/api/v2/package
           NUGET_TOKEN: ${{ secrets.NUGET_TOKEN }}
