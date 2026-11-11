@@ -42,18 +42,26 @@ jobs:
           trap 'rm -f "$header_file" "$body_file"' EXIT
           printf 'X-NuGet-ApiKey: %s\n' "$NUGET_TOKEN" > "$header_file"
           for package in */bin/Release/*.nupkg; do
-            echo "Pushing $package"
-            # --max-time matches dotnet nuget push's 300s default; only a 2xx
-            # means the package was accepted (a redirect would not be).
-            status="$(curl --silent --show-error --connect-timeout 30 --max-time 300 -X PUT \
-              -H "@$header_file" \
-              -F "package=@$package" \
-              -o "$body_file" -w '%{http_code}' \
-              "$NUGET_PUBLISH_URL")"
-            case "$status" in
-              2??) ;;
-              *) echo "NuGet push of $package failed with HTTP $status"; cat "$body_file"; exit 1 ;;
-            esac
+            # Up to 3 attempts on 5xx or network errors, like dotnet nuget push.
+            # --max-time matches its 300s default; only a 2xx means the package
+            # was accepted (a redirect would not be). A 409 on a retry means an
+            # earlier attempt went through but its response was lost.
+            for attempt in 1 2 3; do
+              echo "Pushing $package (attempt $attempt)"
+              status="$(curl --silent --show-error --connect-timeout 30 --max-time 300 -X PUT \
+                -H "@$header_file" \
+                -F "package=@$package" \
+                -o "$body_file" -w '%{http_code}' \
+                "$NUGET_PUBLISH_URL")" || status=000
+              case "$status" in
+                2??) break ;;
+                409) [ "$attempt" -gt 1 ] && break ;;
+                5??|000) [ "$attempt" -lt 3 ] && { sleep $((attempt * 10)); continue; } ;;
+              esac
+              echo "NuGet push of $package failed with HTTP $status"
+              cat "$body_file"
+              exit 1
+            done
           done
         env:
           # PackagePublish/2.0.0 resource from https://api.nuget.org/v3/index.json
