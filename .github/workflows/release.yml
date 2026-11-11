@@ -44,8 +44,9 @@ jobs:
           for package in */bin/Release/*.nupkg; do
             # Up to 3 attempts on 5xx or network errors, like dotnet nuget push.
             # --max-time matches its 300s default; only a 2xx means the package
-            # was accepted (a redirect would not be). A 409 on a retry means an
-            # earlier attempt went through but its response was lost.
+            # was accepted (a redirect would not be). A 409 fails like it does
+            # for dotnet nuget push: we can't tell this artifact from one
+            # already published under the same version.
             for attempt in 1 2 3; do
               echo "Pushing $package (attempt $attempt)"
               status="$(curl --silent --show-error --connect-timeout 30 --max-time 300 -X PUT \
@@ -55,7 +56,7 @@ jobs:
                 "$NUGET_PUBLISH_URL")" || status=000
               case "$status" in
                 2??) break ;;
-                409) [ "$attempt" -gt 1 ] && break ;;
+                409) echo "NuGet already has this package version; if an earlier attempt failed, check nuget.org that it is this build" ;;
                 5??|000) [ "$attempt" -lt 3 ] && { sleep $((attempt * 10)); continue; } ;;
               esac
               echo "NuGet push of $package failed with HTTP $status"
