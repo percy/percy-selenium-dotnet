@@ -91,6 +91,8 @@ namespace PercyIO.Selenium.Tests
 
         public FakeChromeWebDriver(ICapabilities capabilities) : base(capabilities) { }
 
+        public FakeChromeWebDriver(ICommandExecutor executor, ICapabilities capabilities) : base(executor, capabilities) { }
+
         public object ExecuteCdpCommand(string commandName, Dictionary<string, object> commandParameters)
         {
             CdpCommands.Add(commandName);
@@ -143,5 +145,15 @@ namespace PercyIO.Selenium.Tests
 
         public static FakeCapabilities ChromeCaps() =>
             new FakeCapabilities(new Dictionary<string, object> { { "browserName", "chrome" } });
+
+        public static FakeCapabilities Caps(string browserName, string? webSocketUrl = null)
+        {
+            var caps = new Dictionary<string, object> { { "browserName", browserName } };
+            if (webSocketUrl != null) caps["webSocketUrl"] = webSocketUrl;
+            return new FakeCapabilities(caps);
+        }
+
+        public static ICommandExecutor LocalExecutor() =>
+            new HttpCommandExecutor(new Uri("http://localhost:4444/"), TimeSpan.FromSeconds(60));
     }
 }

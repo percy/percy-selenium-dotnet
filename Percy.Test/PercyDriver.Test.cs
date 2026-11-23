@@ -60,7 +60,7 @@ namespace PercyIO.Selenium.Tests
         version = "1.0",
       };
       mockHttp.Fallback.Respond(new HttpClient());
-      mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+      mockHttp.Expect(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
         .WithPartialContent("Screenshot 1")
         .Respond("application/json", JsonConvert.SerializeObject(obj));
       Percy.setHttpClient(new HttpClient(mockHttp));
@@ -94,7 +94,7 @@ namespace PercyIO.Selenium.Tests
         data = syncData
       };
       mockHttp.Fallback.Respond(new HttpClient());
-      mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+      mockHttp.Expect(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
         .WithPartialContent("Screenshot 1")
         .Respond("application/json", JsonConvert.SerializeObject(obj));
       Percy.setHttpClient(new HttpClient(mockHttp));
@@ -131,7 +131,7 @@ namespace PercyIO.Selenium.Tests
       Dictionary<string, object> options = new Dictionary<string, object>();
       options["ignore_region_selenium_elements"] = ignoreElementList;
       options["consider_region_selenium_elements"] = considerElementList;
-      mockHttp.Expect(HttpMethod.Post, "http://localhost:5338/percy/automateScreenshot")
+      mockHttp.Expect(HttpMethod.Post, Percy.CLI_API + "/percy/automateScreenshot")
         .WithPartialContent("dummy_element")
         .WithPartialContent("consider_dummy_element")
         .Respond("application/json", JsonConvert.SerializeObject(obj));

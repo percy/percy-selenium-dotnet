@@ -174,7 +174,7 @@ namespace PercyIO.Selenium.Tests
 
             List<string> expected = new List<string> {
                 "Received snapshot: Snapshot 1",
-                "- url: http://localhost:5338/test/snapshot",
+                $"- url: {Percy.CLI_API}/test/snapshot",
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
                 "- enableJavaScript: false",
@@ -189,7 +189,7 @@ namespace PercyIO.Selenium.Tests
                 @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 1",
                 "Received snapshot: Snapshot 2",
-                "- url: http://localhost:5338/test/snapshot",
+                $"- url: {Percy.CLI_API}/test/snapshot",
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
                 "- enableJavaScript: true",
@@ -204,7 +204,7 @@ namespace PercyIO.Selenium.Tests
                 @"- domSnapshot\.userAgent: Mozilla\/5\.0 \(.*\) Gecko\/\d{8} Firefox\/\d+\.\d+",
                 "Snapshot found: Snapshot 2",
                 "Received snapshot: Snapshot 3",
-                "- url: http://localhost:5338/test/snapshot",
+                $"- url: {Percy.CLI_API}/test/snapshot",
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
                 "- enableJavaScript: true",
@@ -243,7 +243,7 @@ namespace PercyIO.Selenium.Tests
             List<string> expected = new List<string> {
                 "---------",
                 "Received snapshot: Snapshot 1",
-                "- url: http://localhost:5338/test/snapshot",
+                $"- url: {Percy.CLI_API}/test/snapshot",
                 "- widths: 375px, 1280px",
                 "- minHeight: 1024px",
                 "- enableJavaScript: false",
